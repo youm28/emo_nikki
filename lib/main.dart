@@ -1,7 +1,17 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-void main() {
+import 'firebase_options.dart';
+
+Future<void> main() async {
+  // Firebaseの初期化はrunApp前に1回だけ行う。
+  WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
   runApp(const EmoNikkiApp());
 }
 
@@ -206,12 +216,29 @@ class EmojiGridPage extends StatelessWidget {
       ),
     );
 
-    if (confirmed == true) {
-      // Step 3 ではまだ Firestore に保存しない。組み立てた中身をコンソール出力するだけ。
-      final record = buildEmotionRecord(item);
-      debugPrint('--- 記録データ（保存先: users/$username/emotions） ---');
-      debugPrint(record.toString());
-    }
+    if (confirmed != true) return;
+
+    // Step 5: 保存直前に現在地を取得（失敗しても null のまま続行）。
+    final loc = await tryGetLatLng();
+
+    // 記録データを組み立てて lat/lng を上書きする。
+    final record = buildEmotionRecord(item)
+      ..['lat'] = loc.lat
+      ..['lng'] = loc.lng;
+    debugPrint('--- 記録データ（保存先: users/$username/emotions） ---');
+    debugPrint(record.toString());
+
+    // Step 4: Firestore に1件追加する。
+    // パスは users/{username}/emotions/{自動ID}。createdAt はサーバー時刻。
+    await FirebaseFirestore.instance
+        .collection('users')
+        .doc(username)
+        .collection('emotions')
+        .add({
+      ...record,
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+    debugPrint('Firestore に保存しました');
   }
 
   @override
@@ -258,6 +285,32 @@ Map<String, dynamic> buildEmotionRecord(EmojiItem item, {DateTime? now}) {
     'lat': null,
     'lng': null,
   };
+}
+
+/// 現在地の緯度経度を取得する（Step 5）。
+/// 権限拒否・取得失敗・タイムアウトのいずれでも例外を投げず (null, null) を返す。
+/// → 位置情報が取れなくても記録の保存は止めない、という要件のため。
+Future<({double? lat, double? lng})> tryGetLatLng() async {
+  try {
+    LocationPermission permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission(); // ブラウザの許可ダイアログ
+    }
+    if (permission == LocationPermission.denied ||
+        permission == LocationPermission.deniedForever) {
+      return (lat: null, lng: null); // 拒否されたら null のまま続行
+    }
+    final pos = await Geolocator.getCurrentPosition(
+      locationSettings: const LocationSettings(
+        accuracy: LocationAccuracy.medium,
+        timeLimit: Duration(seconds: 10), // 取得が長引いたら諦める
+      ),
+    );
+    return (lat: pos.latitude, lng: pos.longitude);
+  } catch (e) {
+    debugPrint('位置情報の取得に失敗（null のまま続行）: $e');
+    return (lat: null, lng: null);
+  }
 }
 
 /// 絵文字1個分のタイル。タップできる。

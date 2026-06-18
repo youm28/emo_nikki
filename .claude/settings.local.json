@@ -5,7 +5,10 @@
       "Bash(flutter devices *)",
       "Bash(flutter pub *)",
       "Bash(flutter analyze *)",
-      "Bash(flutter test *)"
+      "Bash(flutter test *)",
+      "Bash(npm install *)",
+      "Bash(echo \"exit: $?\")",
+      "Bash(dart pub *)"
     ]
   }
 }
