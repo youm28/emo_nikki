@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   runApp(const EmoNikkiApp());
@@ -49,20 +50,142 @@ class EmoNikkiApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.indigo),
         useMaterial3: true,
       ),
-      home: const EmojiGridPage(),
+      home: const HomeGate(),
     );
   }
 }
 
-/// Step 1: 12個の絵文字を3列グリッドで静的に表示する画面。
-/// タップ処理はまだ無い（Step 3で追加）。
-class EmojiGridPage extends StatelessWidget {
-  const EmojiGridPage({super.key});
+/// shared_preferences に保存するときのキー。
+const String kUsernameKey = 'username';
+
+/// Step 2: ユーザー名ゲート。
+/// 起動時に shared_preferences から名前を読み、
+/// - 未設定なら [NameInputPage]（名前入力画面）
+/// - 設定済みなら [EmojiGridPage]（グリッド）
+/// を表示する。リロードしても名前が残るので、2回目以降は直接グリッドが出る。
+class HomeGate extends StatefulWidget {
+  const HomeGate({super.key});
+
+  @override
+  State<HomeGate> createState() => _HomeGateState();
+}
+
+class _HomeGateState extends State<HomeGate> {
+  bool _loading = true; // 名前の読み込み中
+  String? _username; // null/空 = 未設定
+
+  @override
+  void initState() {
+    super.initState();
+    _loadUsername();
+  }
+
+  Future<void> _loadUsername() async {
+    final prefs = await SharedPreferences.getInstance();
+    final saved = prefs.getString(kUsernameKey);
+    setState(() {
+      _username = (saved != null && saved.isNotEmpty) ? saved : null;
+      _loading = false;
+    });
+  }
+
+  /// 名前入力画面から登録されたとき。保存してグリッドへ。
+  Future<void> _onRegister(String name) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(kUsernameKey, name);
+    setState(() => _username = name);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+    if (_username == null) {
+      return NameInputPage(onRegister: _onRegister);
+    }
+    return EmojiGridPage(username: _username!);
+  }
+}
+
+/// 初回だけ表示する名前入力画面。
+class NameInputPage extends StatefulWidget {
+  /// 登録ボタンが押され、名前が空でないときに呼ばれる。
+  final Future<void> Function(String name) onRegister;
+
+  const NameInputPage({super.key, required this.onRegister});
+
+  @override
+  State<NameInputPage> createState() => _NameInputPageState();
+}
+
+class _NameInputPageState extends State<NameInputPage> {
+  final TextEditingController _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final name = _controller.text.trim();
+    if (name.isEmpty) return; // 空のときは何もしない
+    widget.onRegister(name);
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('今の気分は？')),
+      appBar: AppBar(title: const Text('お名前を入力')),
+      body: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 360),
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Text(
+                  '記録に使うお名前を入力してください。\n（次回からは入力不要です）',
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: _controller,
+                  decoration: const InputDecoration(
+                    labelText: 'お名前',
+                    border: OutlineInputBorder(),
+                  ),
+                  textInputAction: TextInputAction.done,
+                  onSubmitted: (_) => _submit(), // Enterでも登録
+                ),
+                const SizedBox(height: 16),
+                FilledButton(
+                  onPressed: _submit,
+                  child: const Text('登録'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Step 1: 12個の絵文字を3列グリッドで表示する画面。
+/// タップ処理はまだ無い（Step 3で追加）。
+class EmojiGridPage extends StatelessWidget {
+  /// ゲートを通過したユーザー名（後のステップで保存先パスに使う）。
+  final String username;
+
+  const EmojiGridPage({super.key, required this.username});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: Text('今の気分は？（$username）')),
       body: Center(
         child: ConstrainedBox(
           // Webの広い画面でも横に伸びすぎないよう最大幅を制限する。

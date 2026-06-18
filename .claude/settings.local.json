@@ -2,7 +2,10 @@
   "permissions": {
     "allow": [
       "Bash(flutter --version)",
-      "Bash(flutter devices *)"
+      "Bash(flutter devices *)",
+      "Bash(flutter pub *)",
+      "Bash(flutter analyze *)",
+      "Bash(flutter test *)"
     ]
   }
 }
