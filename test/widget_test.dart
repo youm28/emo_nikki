@@ -11,6 +11,19 @@ void main() {
     expect(kEmojiList.length, 12);
   });
 
+  test('記録データの形式（day=yyyy/MM/dd, time=HH:mm）', () {
+    final item = kEmojiList[1]; // SmilingFaceWithSmilingEyes
+    final rec = buildEmotionRecord(item, now: DateTime(2026, 6, 18, 14, 30));
+    expect(rec['day'], '2026/06/18');
+    expect(rec['time'], '14:30');
+    expect(rec['emoji'], '😊');
+    expect(rec['name'], 'SmilingFaceWithSmilingEyes');
+    expect(rec['valence'], 7.75);
+    expect(rec['arousal'], 7.03);
+    expect(rec['lat'], isNull);
+    expect(rec['lng'], isNull);
+  });
+
   testWidgets('名前未設定なら名前入力画面が出る', (WidgetTester tester) async {
     SharedPreferences.setMockInitialValues({}); // 未設定状態
     await tester.pumpWidget(const EmoNikkiApp());

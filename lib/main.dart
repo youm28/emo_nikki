@@ -182,6 +182,38 @@ class EmojiGridPage extends StatelessWidget {
 
   const EmojiGridPage({super.key, required this.username});
 
+  /// 絵文字タップ時：確認ダイアログを出し、「記録」が押されたらデータを組み立てる。
+  Future<void> _onEmojiTap(BuildContext context, EmojiItem item) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('この気分で記録しますか？'),
+        content: SizedBox(
+          width: 96,
+          height: 96,
+          child: EmojiImage(item: item), // 選んだ絵文字を大きく表示
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('キャンセル'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('記録'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      // Step 3 ではまだ Firestore に保存しない。組み立てた中身をコンソール出力するだけ。
+      final record = buildEmotionRecord(item);
+      debugPrint('--- 記録データ（保存先: users/$username/emotions） ---');
+      debugPrint(record.toString());
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -196,7 +228,11 @@ class EmojiGridPage extends StatelessWidget {
             mainAxisSpacing: 16,
             crossAxisSpacing: 16,
             children: [
-              for (final item in kEmojiList) EmojiTile(item: item),
+              for (final item in kEmojiList)
+                EmojiTile(
+                  item: item,
+                  onTap: () => _onEmojiTap(context, item),
+                ),
             ],
           ),
         ),
@@ -205,33 +241,66 @@ class EmojiGridPage extends StatelessWidget {
   }
 }
 
-/// 絵文字1個分のタイル。PNG画像があれば画像、無ければUnicode絵文字を表示する。
+/// 2桁ゼロ埋め（例: 5 -> "05"）。
+String _two(int n) => n.toString().padLeft(2, '0');
+
+/// 要件書 第4章のフィールドを組み立てる。
+/// Step 3 では lat/lng は null、createdAt は付けない（Step 4/5 で追加）。
+Map<String, dynamic> buildEmotionRecord(EmojiItem item, {DateTime? now}) {
+  final t = now ?? DateTime.now();
+  return {
+    'day': '${t.year}/${_two(t.month)}/${_two(t.day)}', // yyyy/MM/dd
+    'time': '${_two(t.hour)}:${_two(t.minute)}', // HH:mm
+    'emoji': item.emoji,
+    'name': item.name,
+    'valence': item.valence,
+    'arousal': item.arousal,
+    'lat': null,
+    'lng': null,
+  };
+}
+
+/// 絵文字1個分のタイル。タップできる。
 class EmojiTile extends StatelessWidget {
   final EmojiItem item;
+  final VoidCallback? onTap;
 
-  const EmojiTile({super.key, required this.item});
+  const EmojiTile({super.key, required this.item, this.onTap});
 
   @override
   Widget build(BuildContext context) {
     return Card(
       elevation: 2,
-      child: Padding(
-        padding: const EdgeInsets.all(8),
-        child: Image.asset(
-          item.assetPath,
-          fit: BoxFit.contain,
-          // 画像が見つからない/読めないときはUnicode絵文字でフォールバック表示。
-          // これにより assets/emoji_list/ にPNGを置く前でもグリッドが崩れない。
-          errorBuilder: (context, error, stackTrace) {
-            return Center(
-              child: Text(
-                item.emoji,
-                style: const TextStyle(fontSize: 40),
-              ),
-            );
-          },
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(8),
+          child: EmojiImage(item: item),
         ),
       ),
+    );
+  }
+}
+
+/// PNG画像があれば画像、無ければUnicode絵文字を表示する共通ウィジェット。
+/// タイルと確認ダイアログの両方で使う。
+class EmojiImage extends StatelessWidget {
+  final EmojiItem item;
+
+  const EmojiImage({super.key, required this.item});
+
+  @override
+  Widget build(BuildContext context) {
+    return Image.asset(
+      item.assetPath,
+      fit: BoxFit.contain,
+      // 画像が見つからない/読めないときはUnicode絵文字でフォールバック表示。
+      errorBuilder: (context, error, stackTrace) {
+        return Center(
+          child: Text(item.emoji, style: const TextStyle(fontSize: 40)),
+        );
+      },
     );
   }
 }
