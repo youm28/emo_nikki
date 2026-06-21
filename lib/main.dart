@@ -184,16 +184,24 @@ class _NameInputPageState extends State<NameInputPage> {
   }
 }
 
-/// Step 1: 12個の絵文字を3列グリッドで表示する画面。
-/// タップ処理はまだ無い（Step 3で追加）。
-class EmojiGridPage extends StatelessWidget {
-  /// ゲートを通過したユーザー名（後のステップで保存先パスに使う）。
+/// 絵文字グリッド画面。タップ→確認→（位置情報付き）Firestore保存まで行う。
+class EmojiGridPage extends StatefulWidget {
+  /// ゲートを通過したユーザー名（保存先パスに使う）。
   final String username;
 
   const EmojiGridPage({super.key, required this.username});
 
-  /// 絵文字タップ時：確認ダイアログを出し、「記録」が押されたらデータを組み立てる。
-  Future<void> _onEmojiTap(BuildContext context, EmojiItem item) async {
+  @override
+  State<EmojiGridPage> createState() => _EmojiGridPageState();
+}
+
+class _EmojiGridPageState extends State<EmojiGridPage> {
+  bool _saving = false; // 保存中フラグ（二重タップ防止＋インジケータ表示）
+
+  /// 絵文字タップ時：確認ダイアログを出し、「記録」が押されたら保存する。
+  Future<void> _onEmojiTap(EmojiItem item) async {
+    if (_saving) return; // Step 6: 保存中はタップを無視（二重送信防止）
+
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -217,52 +225,81 @@ class EmojiGridPage extends StatelessWidget {
     );
 
     if (confirmed != true) return;
+    if (!mounted) return;
 
-    // Step 5: 保存直前に現在地を取得（失敗しても null のまま続行）。
-    final loc = await tryGetLatLng();
+    // await をまたいでも安全なように、context 依存の値を先に取得しておく。
+    final messenger = ScaffoldMessenger.of(context);
+    final errorColor = Theme.of(context).colorScheme.error;
+    setState(() => _saving = true); // Step 6: くるくる表示ON
+    try {
+      // Step 5: 保存直前に現在地を取得（失敗しても null のまま続行）。
+      final loc = await tryGetLatLng();
 
-    // 記録データを組み立てて lat/lng を上書きする。
-    final record = buildEmotionRecord(item)
-      ..['lat'] = loc.lat
-      ..['lng'] = loc.lng;
-    debugPrint('--- 記録データ（保存先: users/$username/emotions） ---');
-    debugPrint(record.toString());
+      // 記録データを組み立てて lat/lng を上書きする。
+      final record = buildEmotionRecord(item)
+        ..['lat'] = loc.lat
+        ..['lng'] = loc.lng;
+      debugPrint('--- 記録データ（保存先: users/${widget.username}/emotions） ---');
+      debugPrint(record.toString());
 
-    // Step 4: Firestore に1件追加する。
-    // パスは users/{username}/emotions/{自動ID}。createdAt はサーバー時刻。
-    await FirebaseFirestore.instance
-        .collection('users')
-        .doc(username)
-        .collection('emotions')
-        .add({
-      ...record,
-      'createdAt': FieldValue.serverTimestamp(),
-    });
-    debugPrint('Firestore に保存しました');
+      // Step 4: Firestore に1件追加（users/{username}/emotions/{自動ID}）。
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(widget.username)
+          .collection('emotions')
+          .add({
+        ...record,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+      debugPrint('Firestore に保存しました');
+
+      messenger.showSnackBar(
+        const SnackBar(content: Text('記録を保存しました')),
+      );
+    } catch (e) {
+      // Step 6: 保存失敗時のフィードバック。
+      debugPrint('保存に失敗: $e');
+      messenger.showSnackBar(
+        SnackBar(
+          content: const Text('保存に失敗しました'),
+          backgroundColor: errorColor,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _saving = false); // くるくる表示OFF
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text('今の気分は？（$username）')),
-      body: Center(
-        child: ConstrainedBox(
-          // Webの広い画面でも横に伸びすぎないよう最大幅を制限する。
-          constraints: const BoxConstraints(maxWidth: 480),
-          child: GridView.count(
-            crossAxisCount: 3, // 3列
-            padding: const EdgeInsets.all(16),
-            mainAxisSpacing: 16,
-            crossAxisSpacing: 16,
-            children: [
-              for (final item in kEmojiList)
-                EmojiTile(
-                  item: item,
-                  onTap: () => _onEmojiTap(context, item),
-                ),
-            ],
+      appBar: AppBar(title: Text('今の気分は？（${widget.username}）')),
+      body: Stack(
+        children: [
+          Center(
+            child: ConstrainedBox(
+              // Webの広い画面でも横に伸びすぎないよう最大幅を制限する。
+              constraints: const BoxConstraints(maxWidth: 480),
+              child: GridView.count(
+                crossAxisCount: 3, // 3列
+                padding: const EdgeInsets.all(16),
+                mainAxisSpacing: 16,
+                crossAxisSpacing: 16,
+                children: [
+                  for (final item in kEmojiList)
+                    EmojiTile(
+                      item: item,
+                      onTap: () => _onEmojiTap(item),
+                    ),
+                ],
+              ),
+            ),
           ),
-        ),
+          // Step 6: 保存中は半透明オーバーレイ＋くるくるで操作をブロック。
+          if (_saving)
+            const ModalBarrier(dismissible: false, color: Colors.black45),
+          if (_saving) const Center(child: CircularProgressIndicator()),
+        ],
       ),
     );
   }
