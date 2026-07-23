@@ -8,7 +8,20 @@
       "Bash(flutter test *)",
       "Bash(npm install *)",
       "Bash(echo \"exit: $?\")",
-      "Bash(dart pub *)"
+      "Bash(dart pub *)",
+      "Bash(xcodebuild -version)",
+      "Bash(xcrun simctl *)",
+      "Bash(pip3 show *)",
+      "Bash(python3 -c ' *)",
+      "mcp__visualize__show_widget",
+      "Bash(firebase --version)",
+      "Bash(git remote *)",
+      "Bash(xcode-select -p)",
+      "Bash(sw_vers)",
+      "Read(//Applications/**)",
+      "Bash(mdfind \"kMDItemCFBundleIdentifier == 'com.apple.dt.Xcode'\")",
+      "Bash(mkdir -p /Users/yuma/dev/WPI-docs)",
+      "Bash(firebase deploy *)"
     ]
   }
 }
