@@ -1,10 +1,11 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // v1は認証なしの実験用: 感情記録の追加(create)だけを許可（期限なし）。
-    // 読み取り・更新・削除は許可しない（書かなければデフォルトで拒否）。
+    // v1は認証なしの実験用: 感情記録の追加(create)と、
+    // ダッシュボード表示のための読み取り(read)を許可（期限なし）。
+    // 更新・削除は許可しない（書かなければデフォルトで拒否）。
     match /users/{userId}/emotions/{docId} {
-      allow create: if true;
+      allow read, create: if true;
     }
   }
 }

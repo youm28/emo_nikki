@@ -21,7 +21,11 @@
       "Read(//Applications/**)",
       "Bash(mdfind \"kMDItemCFBundleIdentifier == 'com.apple.dt.Xcode'\")",
       "Bash(mkdir -p /Users/yuma/dev/WPI-docs)",
-      "Bash(firebase deploy *)"
+      "Bash(firebase deploy *)",
+      "Skill(dataviz)",
+      "Skill(dataviz:*)",
+      "Bash(node /private/tmp/claude-501/bundled-skills/2.1.217/e0367f9ea9912092797b65f513c5f207/dataviz/scripts/validate_palette.js \"#1D9E75,#888780,#D85A30\" --mode light)",
+      "Bash(node /private/tmp/claude-501/bundled-skills/2.1.217/e0367f9ea9912092797b65f513c5f207/dataviz/scripts/validate_palette.js \"#1D9E75,#D85A30\" --mode light)"
     ]
   }
 }
