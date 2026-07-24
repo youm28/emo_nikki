@@ -158,7 +158,7 @@ double valenceToY(double valence, double height) {
   return (1 - t) * height;
 }
 
-/// マーカーの重なり回避（要件書 §F2）。
+/// マーカーの重なり回避（右詰め）。
 /// 時刻昇順の x 座標リストに対し、前のマーカーと最低 minGap 空くよう右へずらす。
 List<double> adjustOverlaps(List<double> xs, double minGap) {
   final result = List<double>.from(xs);
@@ -168,4 +168,72 @@ List<double> adjustOverlaps(List<double> xs, double minGap) {
     }
   }
   return result;
+}
+
+/// マーカーの重なり回避（左右対称版・要件書 §F2 の改良）。
+/// 重なって固まったグループを、その「本来の時刻位置の平均」を中心に左右へ広げる。
+/// 右へ一方向にずらす adjustOverlaps と違い、時間軸の読みが右へ偏らない。
+List<double> spreadSymmetric(List<double> xs, double minGap) {
+  final n = xs.length;
+  if (n == 0) return <double>[];
+
+  // 1. まず右詰めで最小間隔を確保する。
+  final packed = adjustOverlaps(xs, minGap);
+  final result = List<double>.from(packed);
+
+  // 2. 「密着している連続グループ」ごとに、本来位置の平均へ中心を合わせる。
+  var i = 0;
+  while (i < n) {
+    var j = i;
+    while (j + 1 < n && packed[j + 1] - packed[j] <= minGap + 1e-6) {
+      j++;
+    }
+    if (j > i) {
+      var origSum = 0.0;
+      var packedSum = 0.0;
+      for (var k = i; k <= j; k++) {
+        origSum += xs[k];
+        packedSum += packed[k];
+      }
+      final shift = (origSum - packedSum) / (j - i + 1);
+      for (var k = i; k <= j; k++) {
+        result[k] = packed[k] + shift;
+      }
+    }
+    i = j + 1;
+  }
+
+  // 3. 中心寄せでグループ同士が近づきすぎた場合だけ、右詰めで解消する。
+  final spread = adjustOverlaps(result, minGap);
+
+  // 4. 左端で負にはみ出したら、間隔を保ったまま全体を右へ寄せて 0 以上にする。
+  final minX = spread.reduce((a, b) => a < b ? a : b);
+  if (minX < 0) {
+    for (var k = 0; k < spread.length; k++) {
+      spread[k] -= minX;
+    }
+  }
+  return spread;
+}
+
+/// 5分以内（既定 windowMin=5）の既存記録があれば、その中で最も新しい記録のID
+/// を返す（＝上書き対象）。無ければ null。誤タップや「選び直し」を1件にまとめるため。
+String? pickRecentDuplicateId(
+  List<({String id, int? minutes})> existing,
+  int nowMinutes, {
+  int windowMin = 5,
+}) {
+  String? bestId;
+  int? bestMin;
+  for (final e in existing) {
+    final m = e.minutes;
+    if (m == null) continue;
+    if ((nowMinutes - m).abs() <= windowMin) {
+      if (bestMin == null || m > bestMin) {
+        bestMin = m;
+        bestId = e.id;
+      }
+    }
+  }
+  return bestId;
 }

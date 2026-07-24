@@ -7,8 +7,8 @@ import 'emotion_analysis.dart';
 /// 折れ線の色（要件書 §F2: コーラル系）。
 const Color kLineColor = Color(0xFFF0997B);
 
-/// チャート上の絵文字マーカーの大きさ（px）。
-const double kMarkerSize = 38;
+/// チャート上の絵文字マーカーの大きさ（px）。小さいほど時間の分解能が上がる。
+const double kMarkerSize = 30;
 
 /// ダッシュボード画面：1日の感情推移チャート＋サマリー＋履歴（要件書 §3）。
 class DashboardPage extends StatefulWidget {
@@ -325,8 +325,8 @@ class EmotionChart extends StatelessWidget {
               var xs = [
                 for (final e in plotted) timeToX(e.minutes!, range, plotWidth),
               ];
-              // 数分差の連続記録の重なり回避：マーカー幅ぶんの間隔を確保。
-              xs = adjustOverlaps(xs, kMarkerSize);
+              // 数分差の連続記録の重なり回避：真の時刻を中心に左右対称へ広げる。
+              xs = spreadSymmetric(xs, kMarkerSize);
               final ys = [
                 for (final e in plotted) valenceToY(e.valence, plotHeight),
               ];

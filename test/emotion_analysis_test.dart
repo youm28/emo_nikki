@@ -89,6 +89,43 @@ void main() {
       expect(adjustOverlaps([100, 105, 110], 38), [100, 138, 176]);
       expect(adjustOverlaps([], 38), <double>[]);
     });
+
+    test('spreadSymmetric は固まりを本来位置の中心へ左右対称に広げる', () {
+      // 3件が同一位置(200) → 中心200のまま、-gap/0/+gap に広がる。
+      expect(spreadSymmetric([200, 200, 200], 30), [170, 200, 230]);
+      // 十分離れていれば動かさない（真の時刻位置を保つ）。
+      expect(spreadSymmetric([100, 300], 30), [100, 300]);
+      // 左端の固まりは負にならないよう 0 以上へ寄せる。
+      final r = spreadSymmetric([0, 0], 30);
+      expect(r.first, greaterThanOrEqualTo(0));
+      expect(r[1] - r[0], closeTo(30, 1e-9));
+    });
+  });
+
+  group('pickRecentDuplicateId（5分以内の上書き対象）', () {
+    test('5分以内の記録があればその中で最も新しいIDを返す', () {
+      final existing = [
+        (id: 'a', minutes: 600), // 10:00
+        (id: 'b', minutes: 613), // 10:13
+        (id: 'c', minutes: 616), // 10:16
+      ];
+      // now=10:18(618)。5分以内は b(5分)とc(2分) → 新しい方 c。
+      expect(pickRecentDuplicateId(existing, 618), 'c');
+    });
+
+    test('5分より離れていれば null（新規追加になる）', () {
+      final existing = [(id: 'a', minutes: 600)];
+      expect(pickRecentDuplicateId(existing, 606), isNull); // 6分差
+    });
+
+    test('境界5分ちょうどは対象に含む', () {
+      final existing = [(id: 'a', minutes: 600)];
+      expect(pickRecentDuplicateId(existing, 605), 'a');
+    });
+
+    test('記録が無ければ null', () {
+      expect(pickRecentDuplicateId(const [], 605), isNull);
+    });
   });
 
   group('timeToMinutes / formatDay', () {

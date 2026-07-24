@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'dashboard_page.dart';
 import 'emoji.dart';
+import 'emotion_analysis.dart';
 import 'firebase_options.dart';
 
 // 絵文字データと共通ウィジェットは emoji.dart に分離した。
@@ -205,29 +206,56 @@ class _EmojiGridPageState extends State<EmojiGridPage> {
     final errorColor = Theme.of(context).colorScheme.error;
     setState(() => _saving = true); // Step 6: くるくる表示ON
     try {
+      final now = DateTime.now();
+
       // Step 5: 保存直前に現在地を取得（失敗しても null のまま続行）。
       final loc = await tryGetLatLng();
 
       // 記録データを組み立てて lat/lng を上書きする。
-      final record = buildEmotionRecord(item)
+      final record = buildEmotionRecord(item, now: now)
         ..['lat'] = loc.lat
         ..['lng'] = loc.lng;
       debugPrint('--- 記録データ（保存先: users/${widget.username}/emotions） ---');
       debugPrint(record.toString());
 
-      // Step 4: Firestore に1件追加（users/{username}/emotions/{自動ID}）。
-      await FirebaseFirestore.instance
+      final col = FirebaseFirestore.instance
           .collection('users')
           .doc(widget.username)
-          .collection('emotions')
-          .add({
-        ...record,
-        'createdAt': FieldValue.serverTimestamp(),
-      });
-      debugPrint('Firestore に保存しました');
+          .collection('emotions');
+
+      // 誤タップ/選び直し対策：同じ日の5分以内の記録があれば「上書き」する。
+      // 取得に失敗しても新規追加へフォールバックする。
+      String? targetId;
+      try {
+        final today = await col.where('day', isEqualTo: record['day']).get();
+        final existing = [
+          for (final d in today.docs)
+            (
+              id: d.id,
+              minutes: d.data()['time'] is String
+                  ? timeToMinutes(d.data()['time'] as String)
+                  : null,
+            ),
+        ];
+        targetId = pickRecentDuplicateId(existing, now.hour * 60 + now.minute);
+      } catch (e) {
+        debugPrint('既存記録の確認に失敗（新規追加にフォールバック）: $e');
+      }
+
+      final payload = {...record, 'createdAt': FieldValue.serverTimestamp()};
+      if (targetId != null) {
+        // 直近の記録を上書き（1件にまとめる）。
+        await col.doc(targetId).set(payload);
+        debugPrint('Firestore の直近記録を上書きしました');
+      } else {
+        await col.add(payload);
+        debugPrint('Firestore に保存しました');
+      }
 
       messenger.showSnackBar(
-        const SnackBar(content: Text('記録を保存しました')),
+        SnackBar(
+          content: Text(targetId != null ? '記録を更新しました' : '記録を保存しました'),
+        ),
       );
     } catch (e) {
       // Step 6: 保存失敗時のフィードバック。
