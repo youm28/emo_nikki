@@ -9,6 +9,7 @@ class EmotionEntry {
   final String name; // 画像ファイル名（拡張子なし）
   final double valence;
   final double arousal;
+  final String? activity; // 行動の画像ファイル名。未入力・行動追加前の記録は null
 
   const EmotionEntry({
     required this.time,
@@ -16,6 +17,7 @@ class EmotionEntry {
     required this.name,
     required this.valence,
     required this.arousal,
+    this.activity,
   });
 
   /// Firestoreのドキュメントデータから生成。型が想定外なら null。
@@ -27,12 +29,15 @@ class EmotionEntry {
     final arousal = data['arousal'];
     if (time is! String || emoji is! String || name is! String) return null;
     if (valence is! num || arousal is! num) return null;
+    // activity は後から追加したフィールド。無い/文字列でない古い記録は null 扱い。
+    final activity = data['activity'];
     return EmotionEntry(
       time: time,
       emoji: emoji,
       name: name,
       valence: valence.toDouble(),
       arousal: arousal.toDouble(),
+      activity: activity is String && activity.isNotEmpty ? activity : null,
     );
   }
 

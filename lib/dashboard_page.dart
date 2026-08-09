@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
+import 'activity.dart';
 import 'emoji.dart';
 import 'emotion_analysis.dart';
 
@@ -9,6 +10,9 @@ const Color kLineColor = Color(0xFFF0997B);
 
 /// チャート上の絵文字マーカーの大きさ（px）。小さいほど時間の分解能が上がる。
 const double kMarkerSize = 30;
+
+/// 行動レーンのアイコンの大きさ（px）。感情マーカーより一回り小さくする。
+const double kActivitySize = 26;
 
 /// ダッシュボード画面：1日の感情推移チャート＋サマリー＋履歴（要件書 §3）。
 class DashboardPage extends StatefulWidget {
@@ -277,16 +281,23 @@ class EmotionChart extends StatelessWidget {
 
   const EmotionChart({super.key, required this.entries, this.peakIndex});
 
-  static const double _height = 300;
   static const double _leftPad = 24; // 縦軸ラベル分（スクロールしても固定）
-  static const double _bottomPad = 22; // 横軸ラベル分
+  static const double _labelPad = 22; // 横軸ラベル分
+  static const double _lanePad = 34; // 行動レーン分（行動が1件も無い日は0）
+  static const double _plotHeight = 278; // 折れ線の描画領域の高さ
   static const double _minPxPerHour = 24; // 1時間あたりの最小幅
   static const int _tickIntervalHours = 3; // 目盛りは3時間おき
+
+  /// この日に行動が1件でも記録されていれば行動レーンを出す。
+  bool get _hasActivity => entries.any((e) => e.activity != null);
+
+  double get _height =>
+      _plotHeight + _labelPad + (_hasActivity ? _lanePad : 0);
 
   @override
   Widget build(BuildContext context) {
     final range = chartTimeRange(entries);
-    final plotHeight = _height - _bottomPad;
+    const plotHeight = _plotHeight;
 
     return SizedBox(
       height: _height,
@@ -403,6 +414,27 @@ class EmotionChart extends StatelessWidget {
                           ),
                         ),
                       ),
+                    // 行動レーン：感情マーカーと同じx座標に、そのとき何をしていたかを並べる。
+                    // 行動が未入力の記録はここに何も置かない（縦の対応で読ませる）。
+                    if (_hasActivity)
+                      for (var i = 0; i < plotted.length; i++)
+                        if (activityItemByName(plotted[i].activity)
+                            case final act?)
+                          Positioned(
+                            left: xs[i] + (kMarkerSize - kActivitySize) / 2,
+                            top: plotHeight + _labelPad + 2,
+                            child: Tooltip(
+                              message: '${plotted[i].time}  ${act.labelJa}',
+                              child: SizedBox(
+                                width: kActivitySize,
+                                height: kActivitySize,
+                                child: ActivityImage(
+                                  item: act,
+                                  fallbackFontSize: 18,
+                                ),
+                              ),
+                            ),
+                          ),
                   ],
                 ),
               );
@@ -496,27 +528,54 @@ class _HistoryList extends StatelessWidget {
                   style: Theme.of(context).textTheme.titleSmall),
             ),
           ),
-          for (final e in desc)
-            ListTile(
-              dense: true,
-              leading: SizedBox(
-                width: 28,
-                height: 28,
-                child: EmojiImage(
-                  item: emojiItemByName(e.name) ??
-                      EmojiItem(
-                        emoji: e.emoji,
-                        name: e.name,
-                        valence: e.valence,
-                        arousal: e.arousal,
-                      ),
-                ),
-              ),
-              title: Text(e.time),
-              trailing: Text('valence ${e.valence}'),
-            ),
+          for (final e in desc) _HistoryTile(entry: e),
         ],
       ),
+    );
+  }
+}
+
+/// 履歴の1行。時刻・絵文字・valence に加え、行動が入力されていればそれも出す。
+class _HistoryTile extends StatelessWidget {
+  final EmotionEntry entry;
+
+  const _HistoryTile({required this.entry});
+
+  @override
+  Widget build(BuildContext context) {
+    final act = activityItemByName(entry.activity);
+
+    return ListTile(
+      dense: true,
+      leading: SizedBox(
+        width: 28,
+        height: 28,
+        child: EmojiImage(
+          item: emojiItemByName(entry.name) ??
+              EmojiItem(
+                emoji: entry.emoji,
+                name: entry.name,
+                valence: entry.valence,
+                arousal: entry.arousal,
+              ),
+        ),
+      ),
+      title: Text(entry.time),
+      subtitle: act == null
+          ? null
+          : Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: ActivityImage(item: act, fallbackFontSize: 12),
+                ),
+                const SizedBox(width: 4),
+                Text(act.labelJa),
+              ],
+            ),
+      trailing: Text('valence ${entry.valence}'),
     );
   }
 }
