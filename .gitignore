@@ -46,3 +46,6 @@ app.*.map.json
 
 # Firebase deploy cache
 .firebase/
+
+# Claude Code personal settings
+.claude/settings.local.json
