@@ -138,17 +138,52 @@ double? averageValence(List<EmotionEntry> entries) {
 const double kChartValenceMin = 1;
 const double kChartValenceMax = 9;
 
-/// 横軸の範囲（分）。基本 6:00〜24:00、範囲外の記録がある日は 0:00〜24:00。
-({int startMin, int endMin}) chartTimeRange(List<EmotionEntry> entries) {
-  const defaultStart = 6 * 60; // 6:00
-  const end = 24 * 60; // 24:00
+/// 横軸の範囲は 10:00〜20:00 で固定する（記録を促す時間帯に合わせた表示範囲）。
+///
+/// 日によって範囲を変えると同じ時刻が別の位置に来てしまい、日をまたいだ比較が
+/// できなくなるため固定する。画面に収まらない分は横スクロールで見る。
+/// この範囲の外の記録はチャートには出ないが、集計・履歴には含まれる
+/// （ダッシュボード側で件数を知らせる）。
+const ({int startMin, int endMin}) kChartRange =
+    (startMin: 10 * 60, endMin: 20 * 60);
+
+/// 横軸の縮尺：1分 = 1px。
+///
+/// 画面幅に合わせて伸縮させると、狭い画面ではマーカー(30px)が1時間分より広く
+/// なってしまい、重なり回避で本来の時刻から大きくずれる。縮尺を固定することで
+/// マーカー1個ぶん = 30分となり、30分以上離れた記録は必ず真の時刻位置に出る。
+const double kPxPerMinute = 1.0;
+
+/// チャート本体の幅（10:00〜20:00 の10時間ぶん）。
+const double kChartPlotWidth = (20 - 10) * 60 * kPxPerMinute;
+
+/// 横軸の範囲の表示用ラベル（例 "9:00〜20:00"）。
+String chartRangeLabel() =>
+    '${kChartRange.startMin ~/ 60}:00〜${kChartRange.endMin ~/ 60}:00';
+
+/// チャートに描ける記録か（時刻が読めて、かつ横軸の範囲内か）。
+bool isInChartRange(EmotionEntry e) {
+  final m = e.minutes;
+  return m != null && m >= kChartRange.startMin && m <= kChartRange.endMin;
+}
+
+/// チャートに出せない記録の件数（範囲外・時刻が読めないもの）。
+int outOfChartRangeCount(List<EmotionEntry> entries) =>
+    entries.where((e) => !isInChartRange(e)).length;
+
+/// 最初の記録が見える初期スクロール位置。
+/// 範囲内の記録が無い日は左端（9:00）を表示する。
+/// [entries] は時刻昇順であることを前提とする。
+double initialScrollOffset(List<EmotionEntry> entries, {double leading = 40}) {
+  var firstMin = kChartRange.startMin; // 範囲内に記録が無い日の既定位置
   for (final e in entries) {
-    final m = e.minutes;
-    if (m != null && m < defaultStart) {
-      return (startMin: 0, endMin: end); // 早朝の記録がある日は全日表示
+    if (isInChartRange(e)) {
+      firstMin = e.minutes!;
+      break;
     }
   }
-  return (startMin: defaultStart, endMin: end);
+  final offset = timeToX(firstMin, kChartRange, kChartPlotWidth) - leading;
+  return offset < 0 ? 0 : offset;
 }
 
 /// 経過分 → x座標（0〜width の線形写像）。

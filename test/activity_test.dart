@@ -106,7 +106,7 @@ void main() {
   testWidgets('チャートは行動が記録された分だけ行動レーンに並べる',
       (WidgetTester tester) async {
     final entries = [
-      entry('09:00', 7.75, activity: 'work'),
+      entry('11:00', 7.75, activity: 'work'),
       entry('12:00', 3.02), // 行動なし → レーンには出ない
       entry('18:00', 5.18, activity: 'sara'),
     ];

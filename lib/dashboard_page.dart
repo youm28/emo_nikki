@@ -138,6 +138,16 @@ class _DashboardPageState extends State<DashboardPage> {
           )
         else
           EmotionChart(entries: _entries, peakIndex: estimate.peakIndex),
+        // 範囲外の記録があることを隠さず知らせる（件数・平均には入っている）。
+        if (outOfChartRangeCount(_entries) > 0)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Text(
+              'グラフは${chartRangeLabel()}の範囲です。'
+              'この範囲外の記録が${outOfChartRangeCount(_entries)}件あります（下の一覧に出ています）。',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ),
         const SizedBox(height: 16),
         if (_entries.isNotEmpty) _HistoryList(entries: _entries),
       ],
@@ -271,33 +281,66 @@ class _SummaryCard extends StatelessWidget {
   }
 }
 
+const double _leftPad = 24; // 縦軸ラベル分（スクロールしても固定）
+const double _labelPad = 22; // 横軸ラベル分
+const double _lanePad = 34; // 行動レーン分（行動が1件も無い日は0）
+const double _plotHeight = 278; // 折れ線の描画領域の高さ
+const int _tickIntervalHours = 1; // 目盛りは1時間おき
+
 /// 感情推移チャート（要件書 §F2）。
 /// CustomPaint で折れ線と目盛りを描き、絵文字マーカーは Positioned で重ねる。
-/// 「1時間あたりの最小幅」を保証し、画面が狭いときはチャート部分だけ横スクロールする
-/// （時刻比例の配置をスマホ幅でも保つため）。縦軸ラベルは左に固定。
-class EmotionChart extends StatelessWidget {
+///
+/// 横軸は 0:00〜24:00・1分=1px で**固定**し、画面に入らない分は横スクロールする。
+/// 画面幅に合わせて伸縮させていた頃は、狭い画面ほど1時間あたりの幅が縮んで
+/// マーカーが重なり、重なり回避で本来の時刻から大きくずれていた。縮尺と範囲を
+/// 固定したことで、同じ時刻は常に同じ位置に来る（日をまたいだ比較もできる）。
+/// 縦軸ラベルはスクロール領域の外に置くので常に見える。
+class EmotionChart extends StatefulWidget {
   final List<EmotionEntry> entries;
   final int? peakIndex;
 
   const EmotionChart({super.key, required this.entries, this.peakIndex});
 
-  static const double _leftPad = 24; // 縦軸ラベル分（スクロールしても固定）
-  static const double _labelPad = 22; // 横軸ラベル分
-  static const double _lanePad = 34; // 行動レーン分（行動が1件も無い日は0）
-  static const double _plotHeight = 278; // 折れ線の描画領域の高さ
-  static const double _minPxPerHour = 24; // 1時間あたりの最小幅
-  static const int _tickIntervalHours = 3; // 目盛りは3時間おき
+  @override
+  State<EmotionChart> createState() => _EmotionChartState();
+}
+
+class _EmotionChartState extends State<EmotionChart> {
+  late final ScrollController _controller = ScrollController(
+    // 開いた直後に最初の記録が見えるようにする（0:00 の空白から始めない）。
+    initialScrollOffset: initialScrollOffset(widget.entries),
+  );
+
+  @override
+  void didUpdateWidget(EmotionChart oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // 日付を切り替えたら、その日の最初の記録が見える位置に戻す。
+    if (!identical(oldWidget.entries, widget.entries)) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!_controller.hasClients) return;
+        final max = _controller.position.maxScrollExtent;
+        _controller.jumpTo(initialScrollOffset(widget.entries).clamp(0.0, max));
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
 
   /// この日に行動が1件でも記録されていれば行動レーンを出す。
-  bool get _hasActivity => entries.any((e) => e.activity != null);
+  bool get _hasActivity => widget.entries.any((e) => e.activity != null);
 
   double get _height =>
       _plotHeight + _labelPad + (_hasActivity ? _lanePad : 0);
 
   @override
   Widget build(BuildContext context) {
-    final range = chartTimeRange(entries);
+    const range = kChartRange;
     const plotHeight = _plotHeight;
+    const plotWidth = kChartPlotWidth;
 
     return SizedBox(
       height: _height,
@@ -319,30 +362,24 @@ class EmotionChart extends StatelessWidget {
               ],
             ),
           ),
-          // チャート本体。狭ければ横スクロール。
+          // チャート本体。24時間ぶんの固定幅なので常に横スクロールになる。
           Expanded(
-            child: LayoutBuilder(builder: (context, constraints) {
-              final hours = (range.endMin - range.startMin) / 60.0;
-              // 画面にフィットする幅と、時間比例を保てる最小幅の大きい方を採用。
-              final fitWidth = constraints.maxWidth - kMarkerSize;
-              final minWidth = hours * _minPxPerHour;
-              final plotWidth = fitWidth > minWidth ? fitWidth : minWidth;
-
-              // 時刻 → x（時刻不明の記録はチャートから除外）。
+            child: Builder(builder: (context) {
+              // 時刻 → x（時刻不明・範囲外の記録はチャートから除外）。
               final plotted = [
-                for (final e in entries)
-                  if (e.minutes != null) e,
+                for (final e in widget.entries)
+                  if (isInChartRange(e)) e,
               ];
               var xs = [
                 for (final e in plotted) timeToX(e.minutes!, range, plotWidth),
               ];
-              // 数分差の連続記録の重なり回避：真の時刻を中心に左右対称へ広げる。
+              // 30分より近い記録だけ、真の時刻を中心に左右対称へ広げる。
               xs = spreadSymmetric(xs, kMarkerSize);
               final ys = [
                 for (final e in plotted) valenceToY(e.valence, plotHeight),
               ];
 
-              // 目盛りの時刻（3時間おき）とx座標。
+              // 目盛りの時刻とx座標。
               final tickHours = [
                 for (var h = range.startMin ~/ 60;
                     h <= range.endMin ~/ 60;
@@ -439,9 +476,8 @@ class EmotionChart extends StatelessWidget {
                 ),
               );
 
-              // フィットするならそのまま、狭ければ横スクロール。
-              if (contentWidth <= constraints.maxWidth) return chart;
               return SingleChildScrollView(
+                controller: _controller,
                 scrollDirection: Axis.horizontal,
                 child: chart,
               );
@@ -454,8 +490,9 @@ class EmotionChart extends StatelessWidget {
 
   /// entries 全体でのピークが、チャート表示対象 plotted の i 番目かどうか。
   bool _isPeak(List<EmotionEntry> plotted, int i) {
-    if (peakIndex == null) return false;
-    return identical(entries[peakIndex!], plotted[i]);
+    final peak = widget.peakIndex;
+    if (peak == null) return false;
+    return identical(widget.entries[peak], plotted[i]);
   }
 
   TextStyle _axisStyle(BuildContext context) => TextStyle(

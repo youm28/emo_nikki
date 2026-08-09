@@ -64,11 +64,24 @@ void main() {
   });
 
   group('チャート座標', () {
-    test('横軸範囲: 基本は6:00〜24:00、早朝記録があれば0:00〜24:00', () {
-      expect(chartTimeRange([entry('06:00', 5)]),
-          (startMin: 360, endMin: 1440));
-      expect(chartTimeRange([entry('05:59', 5)]), (startMin: 0, endMin: 1440));
-      expect(chartTimeRange([]), (startMin: 360, endMin: 1440));
+    test('横軸範囲は日によらず 10:00〜20:00 固定（1分=1px）', () {
+      expect(kChartRange, (startMin: 600, endMin: 1200));
+      expect(kChartPlotWidth, 600); // 10時間ぶん
+      // 縮尺は常に 1分=1px（範囲を変えてもここは変わらない）。
+      expect(timeToX(10 * 60, kChartRange, kChartPlotWidth), 0);
+      expect(timeToX(12 * 60, kChartRange, kChartPlotWidth), 120);
+      expect(timeToX(20 * 60, kChartRange, kChartPlotWidth), 600);
+    });
+
+    test('範囲外の記録はチャートに出さないが件数は数える', () {
+      expect(isInChartRange(entry('10:00', 5)), isTrue);
+      expect(isInChartRange(entry('20:00', 5)), isTrue); // 端は含む
+      expect(isInChartRange(entry('09:59', 5)), isFalse);
+      expect(isInChartRange(entry('20:01', 5)), isFalse);
+
+      final entries = [entry('07:00', 5), entry('12:00', 5), entry('23:00', 5)];
+      expect(outOfChartRangeCount(entries), 2);
+      expect(chartRangeLabel(), '10:00〜20:00');
     });
 
     test('timeToX は範囲を幅に線形写像する', () {
@@ -76,6 +89,18 @@ void main() {
       expect(timeToX(360, range, 100), 0);
       expect(timeToX(1440, range, 100), 100);
       expect(timeToX(900, range, 100), 50); // 15:00 は中央
+    });
+
+    test('初期スクロール位置は最初の記録の少し手前', () {
+      // 15:00 の記録 → x=300 の 40px 手前。
+      expect(initialScrollOffset([entry('15:00', 5)]), 260);
+      // 左端寄りの記録はマイナスにせず 0 に張り付く。
+      expect(initialScrollOffset([entry('10:20', 5)]), 0);
+      // 記録が無い日・範囲外だけの日は左端（10:00）。
+      expect(initialScrollOffset([]), 0);
+      expect(initialScrollOffset([entry('07:00', 5)]), 0);
+      // 範囲外の記録は飛ばして、範囲内の最初の記録に合わせる。
+      expect(initialScrollOffset([entry('07:00', 5), entry('15:00', 5)]), 260);
     });
 
     test('valenceToY は 1〜9 を高さに写像（9が上=0）', () {
