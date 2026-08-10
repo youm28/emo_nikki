@@ -29,7 +29,7 @@ void main() {
     await tester.pumpWidget(const EmoNikkiApp());
     await tester.pumpAndSettle();
 
-    expect(find.text('登録'), findsOneWidget);
+    expect(find.text('はじめる'), findsOneWidget);
     expect(find.byType(EmojiGridPage), findsNothing);
   });
 
@@ -47,7 +47,10 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.enterText(find.byType(TextField), 'hanako');
-    await tester.tap(find.text('登録'));
+    await tester.tap(find.text('はじめる'));
+    await tester.pumpAndSettle();
+    // 名前は変更できないので確認をはさむ。
+    await tester.tap(find.text('このお名前ではじめる'));
     await tester.pumpAndSettle();
 
     expect(find.byType(EmojiTile), findsNWidgets(12));

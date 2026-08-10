@@ -69,7 +69,12 @@ void main() {
     );
   });
 
-  testWidgets('名前ダイアログは現在の名前が入った状態で開き、変更すると切り替わる',
+  test('登録後にアドレスバーへ反映する相対URL', () {
+    expect(personalRoute('p01'), '/?u=p01');
+    expect(personalRoute('太郎'), '/?u=%E5%A4%AA%E9%83%8E');
+  });
+
+  testWidgets('名前ダイアログは表示専用で、名前を変更できない',
       (WidgetTester tester) async {
     SharedPreferences.setMockInitialValues({'username': 'taro'});
     await tester.pumpWidget(const EmoNikkiApp());
@@ -80,35 +85,74 @@ void main() {
     await tester.tap(find.byIcon(Icons.manage_accounts));
     await tester.pumpAndSettle();
 
-    // 現在の名前が最初から入っている（＝何と入力したか確認できる）。
-    expect(find.widgetWithText(TextField, 'taro'), findsOneWidget);
+    // 名前は読めるが、編集欄も変更ボタンも無い。
+    expect(find.text('taro'), findsOneWidget);
+    expect(find.byType(TextField), findsNothing);
+    expect(find.text('変更'), findsNothing);
+    // 復帰用リンクはコピーできる。
     expect(find.text('リンクをコピー'), findsOneWidget);
-
-    await tester.enterText(find.byType(TextField), 'hanako');
-    await tester.tap(find.text('変更'));
-    await tester.pumpAndSettle();
-
-    expect(find.text('今の気分は？（hanako）'), findsOneWidget);
-
-    // 保存もされている（リロードしても hanako のまま）。
-    final prefs = await SharedPreferences.getInstance();
-    expect(prefs.getString('username'), 'hanako');
   });
 
-  testWidgets('名前を空にして変更は押せない（そのまま維持される）',
+  testWidgets('登録画面は「変更できない」ことを伝え、登録するとグリッドへ進む',
       (WidgetTester tester) async {
-    SharedPreferences.setMockInitialValues({'username': 'taro'});
+    SharedPreferences.setMockInitialValues({});
     await tester.pumpWidget(const EmoNikkiApp());
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byIcon(Icons.manage_accounts));
+    expect(find.text('登録 / ログイン'), findsOneWidget);
+    expect(
+      find.textContaining('お名前はあとから変更できません'),
+      findsOneWidget,
+    );
+
+    await tester.enterText(find.byType(TextField), 'p01');
+    await tester.tap(find.text('はじめる'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('このお名前ではじめる'));
     await tester.pumpAndSettle();
 
-    await tester.enterText(find.byType(TextField), '   ');
-    await tester.tap(find.text('変更'));
+    expect(find.text('今の気分は？（p01）'), findsOneWidget);
+
+    // 次回以降そのまま使えるよう保存されている。
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString('username'), 'p01');
+  });
+
+  testWidgets('確認画面で「入力しなおす」を選ぶと登録されない',
+      (WidgetTester tester) async {
+    SharedPreferences.setMockInitialValues({});
+    await tester.pumpWidget(const EmoNikkiApp());
     await tester.pumpAndSettle();
 
-    // ダイアログは閉じず、名前も変わらない。
-    expect(find.text('名前とリンク'), findsOneWidget);
+    // オートフィルや打ち間違いに気づけるよう、確認画面に名前を出す。
+    await tester.enterText(find.byType(TextField), '山田太郎');
+    await tester.tap(find.text('はじめる'));
+    await tester.pumpAndSettle();
+    expect(find.text('山田太郎'), findsWidgets);
+
+    await tester.tap(find.text('入力しなおす'));
+    await tester.pumpAndSettle();
+
+    // 登録画面のまま。保存もされていない。
+    expect(find.text('登録 / ログイン'), findsOneWidget);
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString('username'), isNull);
+  });
+
+  testWidgets('同じ名前を入れ直せば元の記録に戻れる（ログインとして機能する）',
+      (WidgetTester tester) async {
+    // 端末のデータが消えた状態を再現する。
+    SharedPreferences.setMockInitialValues({});
+    await tester.pumpWidget(const EmoNikkiApp());
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField), 'p01');
+    await tester.tap(find.text('はじめる'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('このお名前ではじめる'));
+    await tester.pumpAndSettle();
+
+    // 記録先は名前で決まるので、同じ名前＝同じ記録に戻る。
+    expect(find.text('今の気分は？（p01）'), findsOneWidget);
   });
 }
