@@ -27,7 +27,9 @@ from firebase_admin import credentials, firestore, messaging
 # 通知をタップしたときに開くURL。?u=<ユーザー名> を付けて本人の画面に入れる。
 APP_URL = "https://emo-nikki-eyuma1218-4155e.web.app/"
 
-TITLE = "Emo日記"
+# iOSは通知の2行目にアプリ名（from Emo日記）を自動で入れるので、
+# タイトルにアプリ名を入れると重複する。ここは用件そのものを書く。
+TITLE = "記録の時間です"
 BODY = "いまの気分を記録しませんか？"
 
 
