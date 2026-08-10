@@ -9,6 +9,7 @@ import 'activity.dart';
 import 'browser_push.dart';
 import 'dashboard_page.dart';
 import 'emoji.dart';
+import 'layout.dart';
 import 'emotion_analysis.dart';
 import 'firebase_options.dart';
 import 'push.dart';
@@ -486,11 +487,11 @@ class _EmojiGridPageState extends State<EmojiGridPage> {
       ),
       body: Stack(
         children: [
-          Center(
-            child: ConstrainedBox(
-              // Webの広い画面でも横に伸びすぎないよう最大幅を制限する。
-              constraints: const BoxConstraints(maxWidth: 480),
-              child: Column(
+          // Webの広い画面でも横に伸びすぎないよう最大幅を制限する。
+          // 幅はダッシュボードと共通（layout.dart）。行き来しても本文の幅が
+          // 変わらないようにするため。
+          ContentWidth(
+            child: Column(
                 children: [
                   // 許可済み以外は、理由が分かるように必ず何か出す。
                   // 黙って消えると、参加者も実験者も原因を追えないため。
@@ -517,7 +518,6 @@ class _EmojiGridPageState extends State<EmojiGridPage> {
                   ),
                 ],
               ),
-            ),
           ),
           // Step 6: 保存中は半透明オーバーレイ＋くるくるで操作をブロック。
           if (_saving)

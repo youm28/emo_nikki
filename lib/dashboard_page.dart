@@ -6,6 +6,7 @@ import 'activity.dart';
 import 'diary.dart';
 import 'emoji.dart';
 import 'emotion_analysis.dart';
+import 'layout.dart';
 
 /// 折れ線の色（要件書 §F2: コーラル系）。
 const Color kLineColor = Color(0xFFF0997B);
@@ -258,40 +259,45 @@ class _DashboardPageState extends State<DashboardPage> {
     }
 
     final estimate = estimateMood(_entries);
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        _DateNavigator(
-          date: _date,
-          canGoNext: !_isToday,
-          onPrev: () => _moveDay(-1),
-          onNext: () => _moveDay(1),
-        ),
-        const SizedBox(height: 12),
-        SummaryCards(entries: _entries, estimate: estimate),
-        const SizedBox(height: 16),
-        if (_entries.isEmpty)
-          // 空状態（要件書 §F5）。
-          const SizedBox(
-            height: 200,
-            child: Center(child: Text('この日の記録はありません')),
-          )
-        else
-          EmotionChart(entries: _entries, peakIndex: estimate.peakIndex),
-        const SizedBox(height: 16),
-        // 日記はチャートのすぐ下（履歴の上）。グラフを見ながら書けるようにする。
-        DiaryCard(
-          controller: _diaryController,
-          entries: _entries,
-          savedText: _savedDiaryText,
-          saving: _savingDiary,
-          loadError: _diaryLoadError,
-          updatedAt: _diaryUpdatedAt,
-          onSave: _saveDiary,
-        ),
-        const SizedBox(height: 16),
-        if (_entries.isNotEmpty) _HistoryList(entries: _entries),
-      ],
+    // パソコンの広い画面でも本文は中央のこの幅に収める（ホーム画面と同じ幅）。
+    // 幅いっぱいに広げると、サマリーカードが1枚600px以上になったり、
+    // 318pxしかないチャートの右に巨大な空白ができたりする。
+    return ContentWidth(
+      child: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          _DateNavigator(
+            date: _date,
+            canGoNext: !_isToday,
+            onPrev: () => _moveDay(-1),
+            onNext: () => _moveDay(1),
+          ),
+          const SizedBox(height: 12),
+          SummaryCards(entries: _entries, estimate: estimate),
+          const SizedBox(height: 16),
+          if (_entries.isEmpty)
+            // 空状態（要件書 §F5）。
+            const SizedBox(
+              height: 200,
+              child: Center(child: Text('この日の記録はありません')),
+            )
+          else
+            EmotionChart(entries: _entries, peakIndex: estimate.peakIndex),
+          const SizedBox(height: 16),
+          // 日記はチャートのすぐ下（履歴の上）。グラフを見ながら書けるようにする。
+          DiaryCard(
+            controller: _diaryController,
+            entries: _entries,
+            savedText: _savedDiaryText,
+            saving: _savingDiary,
+            loadError: _diaryLoadError,
+            updatedAt: _diaryUpdatedAt,
+            onSave: _saveDiary,
+          ),
+          const SizedBox(height: 16),
+          if (_entries.isNotEmpty) _HistoryList(entries: _entries),
+        ],
+      ),
     );
   }
 }
