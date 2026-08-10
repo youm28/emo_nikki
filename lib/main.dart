@@ -32,7 +32,7 @@ class EmoNikkiApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Emo Nikki',
+      title: 'Emo日記',
       debugShowCheckedModeBanner: false, // 右上の DEBUG 帯を非表示
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.indigo),

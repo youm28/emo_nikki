@@ -1,11 +1,11 @@
 {
-    "name": "emo_nikki",
-    "short_name": "emo_nikki",
+    "name": "Emo日記",
+    "short_name": "Emo日記",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#FBF8FF",
+    "theme_color": "#FBF8FF",
+    "description": "絵文字で気分を記録し、1日の推移を見ながら日記を書くアプリ",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [
