@@ -6,5 +6,11 @@ service cloud.firestore {
     match /users/{userId}/emotions/{docId} {
       allow read, create, update: if true;
     }
+
+    // 日記は1日1件。ドキュメントIDが日付(yyyy-MM-dd)なので、
+    // 書き直しは同じ1件のupdateになる。削除(delete)は許可しない。
+    match /users/{userId}/diaries/{day} {
+      allow read, create, update: if true;
+    }
   }
 }

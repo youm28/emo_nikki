@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
 import 'activity.dart';
+import 'diary.dart';
 import 'emoji.dart';
 import 'emotion_analysis.dart';
 
@@ -30,39 +31,72 @@ class _DashboardPageState extends State<DashboardPage> {
   String? _error; // 取得失敗時のメッセージ
   List<EmotionEntry> _entries = const [];
 
+  // 日記。保存ボタン方式なので「保存済みの本文」を持っておき、
+  // 入力中の本文と突き合わせて未保存かどうかを判定する。
+  final TextEditingController _diaryController = TextEditingController();
+  String _savedDiaryText = '';
+  DateTime? _diaryUpdatedAt;
+  bool _diaryExists = false; // createdAt を初回だけ付けるための判定
+  bool _diaryLoadError = false; // 日記だけ読めなかった（上書き事故を避けて保存を止める）
+  bool _savingDiary = false;
+
   @override
   void initState() {
     super.initState();
+    // 文字数と保存ボタンの活性を入力に追従させる。
+    _diaryController.addListener(_onDiaryChanged);
     _fetch();
   }
 
+  @override
+  void dispose() {
+    _diaryController.removeListener(_onDiaryChanged);
+    _diaryController.dispose();
+    super.dispose();
+  }
+
+  void _onDiaryChanged() => setState(() {});
+
   bool get _isToday => formatDay(_date) == formatDay(DateTime.now());
 
-  /// 表示中の日付の記録を Firestore から1回取得する（リアルタイム購読はしない）。
+  /// 未保存の変更があるか（保存ボタンの活性・離脱ガードに使う）。
+  bool get _diaryDirty => _diaryController.text != _savedDiaryText;
+
+  /// 表示中の日付の記録と日記を Firestore から1回取得する（購読はしない）。
   Future<void> _fetch() async {
     setState(() {
       _loading = true;
       _error = null;
     });
     try {
-      // day フィールドの文字列一致で1日分を取得（要件書 §2.1）。
-      final snap = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(widget.username)
+      final user =
+          FirebaseFirestore.instance.collection('users').doc(widget.username);
+
+      // 感情記録と日記は並行して取得する。日記の失敗でチャートまで消えないよう、
+      // 日記側は自前でエラーを受け止める（_fetchDiary を参照）。
+      final emotionsFuture = user
           .collection('emotions')
           .where('day', isEqualTo: formatDay(_date))
           .get();
+      final diaryFuture = _fetchDiary(user);
 
-      final entries = snap.docs
+      final emotionSnap = await emotionsFuture;
+      final entries = emotionSnap.docs
           .map((d) => EmotionEntry.fromMap(d.data()))
           .whereType<EmotionEntry>()
           .toList()
         // ソートは time 文字列の昇順・クライアント側で行う（要件書 §2.1）。
         ..sort((a, b) => a.time.compareTo(b.time));
 
+      final diary = await diaryFuture;
+
       if (!mounted) return;
       setState(() {
         _entries = entries;
+        _diaryExists = diary != null;
+        _savedDiaryText = diary?.text ?? '';
+        _diaryController.text = _savedDiaryText;
+        _diaryUpdatedAt = diary?.updatedAt;
         _loading = false;
       });
     } catch (e) {
@@ -75,7 +109,101 @@ class _DashboardPageState extends State<DashboardPage> {
     }
   }
 
-  void _moveDay(int delta) {
+  /// 日記を1件読む。ドキュメントIDが日付なのでクエリは不要。
+  ///
+  /// ここで失敗しても例外を投げず null を返し、[_diaryLoadError] を立てる。
+  /// 日記が読めないだけでチャートや履歴まで見られなくなるのを避けるため。
+  /// ただし読めなかった内容を空のまま上書きしてしまわないよう、
+  /// この場合は保存を止める（カード側でその旨を出す）。
+  Future<DiaryEntry?> _fetchDiary(
+    DocumentReference<Map<String, dynamic>> user,
+  ) async {
+    try {
+      final snap = await user.collection('diaries').doc(diaryDocId(_date)).get();
+      _diaryLoadError = false;
+      final data = snap.data();
+      if (data == null) return null; // まだ書かれていない日
+      return DiaryEntry.fromMap(
+        data,
+        updatedAt: (data['updatedAt'] as Timestamp?)?.toDate(),
+      );
+    } catch (e) {
+      debugPrint('日記の取得に失敗（記録の表示は続行）: $e');
+      _diaryLoadError = true;
+      return null;
+    }
+  }
+
+  /// 日記を保存する（同じ日は常に同じ1件を上書きする）。
+  Future<void> _saveDiary() async {
+    if (_savingDiary) return;
+    final text = _diaryController.text;
+    final messenger = ScaffoldMessenger.of(context);
+    final errorColor = Theme.of(context).colorScheme.error;
+
+    setState(() => _savingDiary = true);
+    try {
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(widget.username)
+          .collection('diaries')
+          .doc(diaryDocId(_date))
+          .set({
+        'day': formatDay(_date),
+        'text': text,
+        // createdAt は初回だけ。以後は updatedAt のみ更新する。
+        if (!_diaryExists) 'createdAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+      if (!mounted) return;
+      setState(() {
+        _savedDiaryText = text;
+        _diaryExists = true;
+        _diaryUpdatedAt = DateTime.now();
+        _savingDiary = false;
+      });
+      messenger.showSnackBar(const SnackBar(content: Text('日記を保存しました')));
+    } catch (e) {
+      debugPrint('日記の保存に失敗: $e');
+      if (!mounted) return;
+      setState(() => _savingDiary = false);
+      messenger.showSnackBar(
+        SnackBar(
+          content: const Text('日記の保存に失敗しました'),
+          backgroundColor: errorColor,
+        ),
+      );
+    }
+  }
+
+  /// 未保存の日記があるとき、破棄してよいか確認する。
+  /// 保存ボタン方式なので、書きかけのまま日付を移動して消える事故を防ぐ。
+  Future<bool> _confirmDiscardIfDirty() async {
+    if (!_diaryDirty) return true;
+    final discard = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('保存していない日記があります'),
+        content: const Text('このまま移動すると、書きかけの内容は失われます。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('このまま残る'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('破棄して移動'),
+          ),
+        ],
+      ),
+    );
+    return discard == true;
+  }
+
+  Future<void> _moveDay(int delta) async {
+    if (!await _confirmDiscardIfDirty()) return;
+    if (!mounted) return;
     setState(() {
       _date = DateTime(_date.year, _date.month, _date.day + delta);
     });
@@ -84,12 +212,22 @@ class _DashboardPageState extends State<DashboardPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: Text('ダッシュボード（${widget.username}）')),
-      body: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 680),
-          child: _buildBody(),
+    return PopScope(
+      // 書きかけがあるときは戻るを止めて確認をはさむ。
+      canPop: !_diaryDirty,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        if (await _confirmDiscardIfDirty() && mounted) {
+          if (context.mounted) Navigator.pop(context);
+        }
+      },
+      child: Scaffold(
+        appBar: AppBar(title: Text('ダッシュボード（${widget.username}）')),
+        body: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 680),
+            child: _buildBody(),
+          ),
         ),
       ),
     );
@@ -149,9 +287,158 @@ class _DashboardPageState extends State<DashboardPage> {
             ),
           ),
         const SizedBox(height: 16),
+        // 日記はチャートのすぐ下（履歴の上）。グラフを見ながら書けるようにする。
+        DiaryCard(
+          controller: _diaryController,
+          entries: _entries,
+          dirty: _diaryDirty,
+          saving: _savingDiary,
+          loadError: _diaryLoadError,
+          updatedAt: _diaryUpdatedAt,
+          onSave: _saveDiary,
+        ),
+        const SizedBox(height: 16),
         if (_entries.isNotEmpty) _HistoryList(entries: _entries),
       ],
     );
+  }
+}
+
+/// 日記カード。表示中の日付の日記を書く／書き直す。
+///
+/// 保存は明示的な「保存」ボタンのみ（自動保存はしない）。未保存のときだけ
+/// ボタンが有効になり、その旨も文言で示す。
+class DiaryCard extends StatelessWidget {
+  final TextEditingController controller;
+
+  /// その日の感情記録。カード右上に絵文字を並べて、入力中でも
+  /// その日の起伏を思い出せるようにする。
+  final List<EmotionEntry> entries;
+
+  final bool dirty; // 未保存の変更があるか
+  final bool saving;
+
+  /// 日記の読み込みに失敗したか。書かれている内容を空で上書きしてしまう
+  /// おそれがあるので、この間は保存させない。
+  final bool loadError;
+
+  final DateTime? updatedAt;
+  final VoidCallback onSave;
+
+  const DiaryCard({
+    super.key,
+    required this.controller,
+    required this.entries,
+    required this.dirty,
+    required this.saving,
+    this.loadError = false,
+    required this.updatedAt,
+    required this.onSave,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final count = controller.text.characters.length;
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.menu_book_outlined,
+                    size: 18, color: theme.colorScheme.onSurfaceVariant),
+                const SizedBox(width: 6),
+                Text('この日の日記', style: theme.textTheme.titleSmall),
+                const SizedBox(width: 12),
+                // 記録が多い日は右端（最新）を見せたまま横スクロールできる。
+                Expanded(
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    reverse: true,
+                    child: Row(
+                      children: [
+                        for (final e in entries)
+                          Padding(
+                            padding: const EdgeInsets.only(left: 2),
+                            child: SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: EmojiImage(
+                                item: emojiItemByName(e.name) ??
+                                    EmojiItem(
+                                      emoji: e.emoji,
+                                      name: e.name,
+                                      valence: e.valence,
+                                      arousal: e.arousal,
+                                    ),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: controller,
+              maxLines: null,
+              minLines: 4,
+              enabled: !loadError,
+              keyboardType: TextInputType.multiline,
+              textCapitalization: TextCapitalization.sentences,
+              decoration: const InputDecoration(
+                hintText: '今日はどんな一日でしたか？',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Text('$count 文字', style: theme.textTheme.bodySmall),
+                const Spacer(),
+                Flexible(
+                  child: Text(
+                    _statusText(),
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: dirty ? theme.colorScheme.primary : null,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.right,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                FilledButton(
+                  // 未保存のときだけ押せる（＝二重保存や無意味な書き込みを防ぐ）。
+                  // 読み込みに失敗した日は、既存の内容を消さないよう保存させない。
+                  onPressed: (dirty && !saving && !loadError) ? onSave : null,
+                  child: saving
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Text('保存'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _statusText() {
+    if (loadError) return '日記を読み込めませんでした';
+    if (saving) return '保存中…';
+    if (dirty) return '未保存の変更があります';
+    if (updatedAt != null) return '最終更新 ${formatUpdatedAt(updatedAt!)}';
+    return 'まだ書かれていません';
   }
 }
 
