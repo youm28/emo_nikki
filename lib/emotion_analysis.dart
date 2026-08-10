@@ -134,9 +134,9 @@ double? averageValence(List<EmotionEntry> entries) {
 // チャートの座標計算（要件書 §F2）
 // ---------------------------------------------------------------------------
 
-/// 縦軸は Valence 1〜9 固定（日間比較のため）。
-const double kChartValenceMin = 1;
-const double kChartValenceMax = 9;
+/// 縦軸は Valence 2〜8 に固定（要望により狭めて表示）。
+const double kChartValenceMin = 2;
+const double kChartValenceMax = 8;
 
 /// 横軸の範囲は 10:00〜20:00 で固定する（記録を促す時間帯に合わせた表示範囲）。
 ///
@@ -147,12 +147,17 @@ const double kChartValenceMax = 9;
 const ({int startMin, int endMin}) kChartRange =
     (startMin: 10 * 60, endMin: 20 * 60);
 
-/// 横軸の縮尺：1分 = 1px。
+/// 横軸の縮尺：1分 = 0.55px。
 ///
-/// 画面幅に合わせて伸縮させると、狭い画面ではマーカー(30px)が1時間分より広く
-/// なってしまい、重なり回避で本来の時刻から大きくずれる。縮尺を固定することで
-/// マーカー1個ぶん = 30分となり、30分以上離れた記録は必ず真の時刻位置に出る。
-const double kPxPerMinute = 1.0;
+/// 画面幅に合わせて伸縮させると、狭い画面ではマーカーが1時間分より広くなり、
+/// 重なり回避で本来の時刻から大きくずれるため、縮尺は固定する。
+///
+/// 値の決め方：10時間ぶんがスマホ1画面に収まるようにしている。
+/// 表示領域は 375px から縦軸ラベル24pxを引いた 351px、
+/// チャートは 10*60*0.53 = 318px にマーカー1個分(20px)を足した 338px。
+/// この縮尺だとマーカー1個ぶん ≒ 45分となり、45分以上離れた記録は
+/// 必ず真の時刻位置に出る。通知は毎正時（60分間隔）なので実運用では足りる。
+const double kPxPerMinute = 0.53;
 
 /// チャート本体の幅（10:00〜20:00 の10時間ぶん）。
 const double kChartPlotWidth = (20 - 10) * 60 * kPxPerMinute;

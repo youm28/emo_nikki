@@ -6,6 +6,23 @@
       "runtimeExecutable": "flutter",
       "runtimeArgs": ["run", "-d", "web-server", "--web-port", "8080"],
       "port": 8080
+    },
+    {
+      "//": "同じWi-Fi上のスマホ実機から見るための設定。--web-hostname 0.0.0.0 で",
+      "//2": "Mac以外の端末からも接続できるようにする。HTTPなので通知やPWAは動かないが、",
+      "//3": "レイアウトの確認には十分。iPhoneからは http://<MacのIP>:8080 で開く。",
+      "name": "emo_nikki-web-lan",
+      "runtimeExecutable": "flutter",
+      "runtimeArgs": [
+        "run",
+        "-d",
+        "web-server",
+        "--web-hostname",
+        "0.0.0.0",
+        "--web-port",
+        "8080"
+      ],
+      "port": 8080
     }
   ]
 }

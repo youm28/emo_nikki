@@ -10,10 +10,12 @@ import 'emotion_analysis.dart';
 const Color kLineColor = Color(0xFFF0997B);
 
 /// チャート上の絵文字マーカーの大きさ（px）。小さいほど時間の分解能が上がる。
-const double kMarkerSize = 30;
+/// 縮尺(kPxPerMinute)と合わせて「何分あければずれないか」が決まる。
+/// 20px / 0.53px/分 ≒ 38分。
+const double kMarkerSize = 20; // 絵文字マーカーの大きさ（px）。小さくして表示密度を上げる。
 
 /// 行動レーンのアイコンの大きさ（px）。感情マーカーより一回り小さくする。
-const double kActivitySize = 26;
+const double kActivitySize = 16; // 行動レーンのアイコンの大きさ（px）。絵文字より小さくする。
 
 /// ダッシュボード画面：1日の感情推移チャート＋サマリー＋履歴（要件書 §3）。
 class DashboardPage extends StatefulWidget {
@@ -223,12 +225,8 @@ class _DashboardPageState extends State<DashboardPage> {
       },
       child: Scaffold(
         appBar: AppBar(title: Text('ダッシュボード（${widget.username}）')),
-        body: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 680),
-            child: _buildBody(),
-          ),
-        ),
+        // 全幅で表示（左右の余白は内部の ListView の padding で管理）
+        body: _buildBody(),
       ),
     );
   }
@@ -568,10 +566,10 @@ class _SummaryCard extends StatelessWidget {
   }
 }
 
-const double _leftPad = 24; // 縦軸ラベル分（スクロールしても固定）
+const double _leftPad = 12; // 縦軸ラベル分（チャートと数字を近づける）
 const double _labelPad = 22; // 横軸ラベル分
 const double _lanePad = 34; // 行動レーン分（行動が1件も無い日は0）
-const double _plotHeight = 278; // 折れ線の描画領域の高さ
+const double _plotHeight = 200; // 折れ線の描画領域の高さ（縮小）
 const int _tickIntervalHours = 1; // 目盛りは1時間おき
 
 /// 感情推移チャート（要件書 §F2）。
@@ -643,7 +641,9 @@ class _EmotionChartState extends State<EmotionChart> {
                 for (final v in const [2.0, 5.0, 8.0])
                   Positioned(
                     left: 0,
-                    top: valenceToY(v, plotHeight) - 7,
+                    top: (valenceToY(v, plotHeight) - 7) < 0
+                        ? 0
+                        : (valenceToY(v, plotHeight) - 7),
                     child: Text('${v.toInt()}', style: _axisStyle(context)),
                   ),
               ],
@@ -660,8 +660,7 @@ class _EmotionChartState extends State<EmotionChart> {
               var xs = [
                 for (final e in plotted) timeToX(e.minutes!, range, plotWidth),
               ];
-              // 30分より近い記録だけ、真の時刻を中心に左右対称へ広げる。
-              xs = spreadSymmetric(xs, kMarkerSize);
+              // マーカーの位置は時刻に忠実にする（重なってもずらさない）。
               final ys = [
                 for (final e in plotted) valenceToY(e.valence, plotHeight),
               ];
