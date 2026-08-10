@@ -17,10 +17,12 @@ EmotionEntry entry(String time, double valence) => EmotionEntry(
     );
 
 /// 日記カードを単体で描画する（Firestoreに触れずに見た目と活性を確かめる）。
+/// 未保存かどうかは「入力中の本文」と [savedText] の差で決まる。
+/// 保存済みの状態を作りたいときは savedText に controller と同じ文字列を渡す。
 Widget wrap({
   required TextEditingController controller,
   List<EmotionEntry> entries = const [],
-  bool dirty = false,
+  String savedText = '',
   bool saving = false,
   DateTime? updatedAt,
   VoidCallback? onSave,
@@ -30,7 +32,7 @@ Widget wrap({
         body: DiaryCard(
           controller: controller,
           entries: entries,
-          dirty: dirty,
+          savedText: savedText,
           saving: saving,
           updatedAt: updatedAt,
           onSave: onSave ?? () {},
@@ -102,9 +104,9 @@ void main() {
       addTearDown(controller.dispose);
       var saved = false;
 
+      // 保存済みは空 → 書きかけがある状態になる。
       await tester.pumpWidget(wrap(
         controller: controller,
-        dirty: true,
         onSave: () => saved = true,
       ));
       await tester.pumpAndSettle();
@@ -121,8 +123,10 @@ void main() {
       final controller = TextEditingController(text: '保存済みの日記');
       addTearDown(controller.dispose);
 
+      // 入力中の本文と保存済みが一致 → 未保存の変更なし。
       await tester.pumpWidget(wrap(
         controller: controller,
+        savedText: '保存済みの日記',
         updatedAt: DateTime(2026, 8, 10, 21, 14),
       ));
       await tester.pumpAndSettle();
@@ -138,7 +142,6 @@ void main() {
 
       await tester.pumpWidget(wrap(
         controller: controller,
-        dirty: true,
         saving: true,
       ));
       await tester.pump();
@@ -172,6 +175,49 @@ void main() {
 
       // characters で数えるので絵文字1つ＋あ = 2文字。
       expect(find.text('2 文字'), findsOneWidget);
+    });
+
+    testWidgets('入力しても親は再構築されない（日本語変換が重くなるのを防ぐ）',
+        (WidgetTester tester) async {
+      // 以前は controller のリスナーで親を setState していたため、1文字打つ
+      // たびにチャートや履歴まで作り直されて日本語変換が重くなっていた。
+      // 入力に追従するのは日記カードの一部だけ、という状態を維持する。
+      final controller = TextEditingController();
+      addTearDown(controller.dispose);
+      var parentBuilds = 0;
+
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Builder(builder: (context) {
+            parentBuilds++;
+            return DiaryCard(
+              controller: controller,
+              entries: const [],
+              savedText: '',
+              saving: false,
+              updatedAt: null,
+              onSave: () {},
+            );
+          }),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      final buildsBeforeTyping = parentBuilds;
+
+      // 変換中は1文字ごとに何度も通知が飛ぶ。それを再現する。
+      controller.text = 'き';
+      await tester.pumpAndSettle();
+      controller.text = 'きょ';
+      await tester.pumpAndSettle();
+      controller.text = '今日';
+      await tester.pumpAndSettle();
+
+      expect(parentBuilds, buildsBeforeTyping,
+          reason: '入力のたびに親まで再構築してはいけない');
+      // それでも文字数と保存ボタンは追従している。
+      expect(find.text('2 文字'), findsOneWidget);
+      final button = tester.widget<FilledButton>(find.byType(FilledButton));
+      expect(button.onPressed, isNotNull);
     });
   });
 }

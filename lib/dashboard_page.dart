@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/material.dart';
 
 import 'activity.dart';
@@ -45,23 +46,21 @@ class _DashboardPageState extends State<DashboardPage> {
   @override
   void initState() {
     super.initState();
-    // 文字数と保存ボタンの活性を入力に追従させる。
-    _diaryController.addListener(_onDiaryChanged);
     _fetch();
   }
 
   @override
   void dispose() {
-    _diaryController.removeListener(_onDiaryChanged);
     _diaryController.dispose();
     super.dispose();
   }
 
-  void _onDiaryChanged() => setState(() {});
-
   bool get _isToday => formatDay(_date) == formatDay(DateTime.now());
 
-  /// 未保存の変更があるか（保存ボタンの活性・離脱ガードに使う）。
+  /// 未保存の変更があるか（離脱ガードに使う）。
+  ///
+  /// 入力のたびに setState はしないので、この値は「呼ばれた時点」で評価する。
+  /// 保存ボタンの活性は DiaryCard の中で同じ判定を行っている。
   bool get _diaryDirty => _diaryController.text != _savedDiaryText;
 
   /// 表示中の日付の記録と日記を Firestore から1回取得する（購読はしない）。
@@ -215,8 +214,13 @@ class _DashboardPageState extends State<DashboardPage> {
   @override
   Widget build(BuildContext context) {
     return PopScope(
-      // 書きかけがあるときは戻るを止めて確認をはさむ。
-      canPop: !_diaryDirty,
+      // 常に一度止めて、書きかけがあるときだけ確認をはさむ。
+      //
+      // 以前は canPop: !_diaryDirty としていたが、これは build 時に評価されるため
+      // 「入力のたびに setState する」ことが前提になっていた。その setState が
+      // チャートや履歴まで作り直して日本語変換を重くしていたので、
+      // 判定を戻る操作の時点に移した。書きかけが無ければ確認は出ず即座に戻る。
+      canPop: false,
       onPopInvokedWithResult: (didPop, result) async {
         if (didPop) return;
         if (await _confirmDiscardIfDirty() && mounted) {
@@ -254,6 +258,8 @@ class _DashboardPageState extends State<DashboardPage> {
     }
 
     final estimate = estimateMood(_entries);
+    // 同じ集計を条件と本文で2回呼んでいたのを1回にまとめる。
+    final outOfRange = outOfChartRangeCount(_entries);
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
@@ -275,12 +281,12 @@ class _DashboardPageState extends State<DashboardPage> {
         else
           EmotionChart(entries: _entries, peakIndex: estimate.peakIndex),
         // 範囲外の記録があることを隠さず知らせる（件数・平均には入っている）。
-        if (outOfChartRangeCount(_entries) > 0)
+        if (outOfRange > 0)
           Padding(
             padding: const EdgeInsets.only(top: 8),
             child: Text(
               'グラフは${chartRangeLabel()}の範囲です。'
-              'この範囲外の記録が${outOfChartRangeCount(_entries)}件あります（下の一覧に出ています）。',
+              'この範囲外の記録が$outOfRange件あります（下の一覧に出ています）。',
               style: Theme.of(context).textTheme.bodySmall,
             ),
           ),
@@ -289,7 +295,7 @@ class _DashboardPageState extends State<DashboardPage> {
         DiaryCard(
           controller: _diaryController,
           entries: _entries,
-          dirty: _diaryDirty,
+          savedText: _savedDiaryText,
           saving: _savingDiary,
           loadError: _diaryLoadError,
           updatedAt: _diaryUpdatedAt,
@@ -306,6 +312,10 @@ class _DashboardPageState extends State<DashboardPage> {
 ///
 /// 保存は明示的な「保存」ボタンのみ（自動保存はしない）。未保存のときだけ
 /// ボタンが有効になり、その旨も文言で示す。
+///
+/// 入力に追従して変わるのは「文字数・状態の文言・保存ボタンの活性」だけなので、
+/// その部分だけを [ValueListenableBuilder] で囲んでいる。カード全体や
+/// 親のダッシュボード（チャート・履歴）は入力中に作り直さない。
 class DiaryCard extends StatelessWidget {
   final TextEditingController controller;
 
@@ -313,7 +323,13 @@ class DiaryCard extends StatelessWidget {
   /// その日の起伏を思い出せるようにする。
   final List<EmotionEntry> entries;
 
-  final bool dirty; // 未保存の変更があるか
+  /// 保存済みの本文。入力中の本文と突き合わせて未保存かどうかを判定する。
+  ///
+  /// 「未保存かどうか」を bool で受け取らないのは、その判定に入力の変化が
+  /// 必要になり、結果として親を setState せざるを得なくなるため。
+  /// 元の文字列を受け取り、判定はこのカードの中で行う。
+  final String savedText;
+
   final bool saving;
 
   /// 日記の読み込みに失敗したか。書かれている内容を空で上書きしてしまう
@@ -327,7 +343,7 @@ class DiaryCard extends StatelessWidget {
     super.key,
     required this.controller,
     required this.entries,
-    required this.dirty,
+    required this.savedText,
     required this.saving,
     this.loadError = false,
     required this.updatedAt,
@@ -337,7 +353,6 @@ class DiaryCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final count = controller.text.characters.length;
 
     return Card(
       child: Padding(
@@ -396,34 +411,46 @@ class DiaryCard extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 8),
-            Row(
-              children: [
-                Text('$count 文字', style: theme.textTheme.bodySmall),
-                const Spacer(),
-                Flexible(
-                  child: Text(
-                    _statusText(),
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: dirty ? theme.colorScheme.primary : null,
+            // 入力に追従して変わるのはこの1行だけ。ここだけを作り直すことで、
+            // 文字を打つたびにチャートや履歴まで再構築されるのを防ぐ。
+            // （TextField 自体は controller の変化を内部で処理するので、
+            //  この外側にあっても入力は正しく反映される）
+            ValueListenableBuilder<TextEditingValue>(
+              valueListenable: controller,
+              builder: (context, value, _) {
+                final count = value.text.characters.length;
+                final dirty = value.text != savedText;
+                return Row(
+                  children: [
+                    Text('$count 文字', style: theme.textTheme.bodySmall),
+                    const Spacer(),
+                    Flexible(
+                      child: Text(
+                        _statusText(dirty),
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: dirty ? theme.colorScheme.primary : null,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.right,
+                      ),
                     ),
-                    overflow: TextOverflow.ellipsis,
-                    textAlign: TextAlign.right,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                FilledButton(
-                  // 未保存のときだけ押せる（＝二重保存や無意味な書き込みを防ぐ）。
-                  // 読み込みに失敗した日は、既存の内容を消さないよう保存させない。
-                  onPressed: (dirty && !saving && !loadError) ? onSave : null,
-                  child: saving
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Text('保存'),
-                ),
-              ],
+                    const SizedBox(width: 12),
+                    FilledButton(
+                      // 未保存のときだけ押せる（＝二重保存や無意味な書き込みを防ぐ）。
+                      // 読み込みに失敗した日は、既存の内容を消さないよう保存させない。
+                      onPressed:
+                          (dirty && !saving && !loadError) ? onSave : null,
+                      child: saving
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Text('保存'),
+                    ),
+                  ],
+                );
+              },
             ),
           ],
         ),
@@ -431,7 +458,8 @@ class DiaryCard extends StatelessWidget {
     );
   }
 
-  String _statusText() {
+  /// [dirty] は入力のたびに変わるので、フィールドではなく引数で受け取る。
+  String _statusText(bool dirty) {
     if (loadError) return '日記を読み込めませんでした';
     if (saving) return '保存中…';
     if (dirty) return '未保存の変更があります';
@@ -828,7 +856,12 @@ class _ChartPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_ChartPainter old) =>
-      old.xs != xs || old.ys != ys || old.tickXs != tickXs;
+      // 中身で比べる。`!=` はリストの参照比較になるため、座標リストを毎回
+      // 新しく作っているこの実装では常に「変わった」と判定され、
+      // 内容が同じでも折れ線と目盛りを描き直していた。
+      !listEquals(old.xs, xs) ||
+      !listEquals(old.ys, ys) ||
+      !listEquals(old.tickXs, tickXs);
 }
 
 /// 入力履歴リスト（要件書 §F6）：時刻降順。リスト内スクロールは作らない。

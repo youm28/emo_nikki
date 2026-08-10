@@ -4,7 +4,13 @@
     {
       "name": "emo_nikki-web",
       "runtimeExecutable": "flutter",
-      "runtimeArgs": ["run", "-d", "web-server", "--web-port", "8080"],
+      "runtimeArgs": [
+        "run",
+        "-d",
+        "web-server",
+        "--web-port",
+        "8080"
+      ],
       "port": 8080
     },
     {
@@ -23,6 +29,19 @@
         "8080"
       ],
       "port": 8080
+    },
+    {
+      "//": "8080が使用中のときの確認用（ポート違いだけ）。",
+      "name": "emo_nikki-web-8081",
+      "runtimeExecutable": "flutter",
+      "runtimeArgs": [
+        "run",
+        "-d",
+        "web-server",
+        "--web-port",
+        "8081"
+      ],
+      "port": 8081
     }
   ]
 }
