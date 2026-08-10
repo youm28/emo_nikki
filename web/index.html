@@ -53,11 +53,19 @@
     判定してiOS専用の処理(getAPNSToken)を呼んでしまい、Webには実装が無いため
     必ず失敗する。そのためプラグインを経由せず、Firebase公式のJSライブラリを
     直接使って取得する。
+
+    defer を付けるのは、同期読み込みだとHTMLの解析が止まり、アプリの起動が
+    始まる前に待たされるため。これらは「オンにする」を押すまで使わないので、
+    起動をブロックする必要がない（読み込み順は defer でも保たれる）。
   -->
-  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-messaging-compat.js"></script>
+  <script defer src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+  <script defer src="https://www.gstatic.com/firebasejs/10.14.1/firebase-messaging-compat.js"></script>
   <script>
     window.emoGetPushToken = async function (vapidKey) {
+      // defer で後から読み込まれるため、万一まだ来ていなければその旨を返す。
+      if (typeof firebase === 'undefined') {
+        throw new Error('通知用のライブラリがまだ読み込まれていません。少し待ってからもう一度お試しください。');
+      }
       if (!firebase.apps.length) {
         firebase.initializeApp({
           apiKey: 'AIzaSyDsChpiww9yyHKfcorCfOeVv06yaZeYUuo',
