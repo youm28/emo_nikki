@@ -73,15 +73,11 @@ void main() {
       expect(timeToX(20 * 60, kChartRange, kChartPlotWidth), closeTo(318, 0.01));
     });
 
-    test('範囲外の記録はチャートに出さないが件数は数える', () {
+    test('範囲外の記録はチャートに出さない', () {
       expect(isInChartRange(entry('10:00', 5)), isTrue);
       expect(isInChartRange(entry('20:00', 5)), isTrue); // 端は含む
       expect(isInChartRange(entry('09:59', 5)), isFalse);
       expect(isInChartRange(entry('20:01', 5)), isFalse);
-
-      final entries = [entry('07:00', 5), entry('12:00', 5), entry('23:00', 5)];
-      expect(outOfChartRangeCount(entries), 2);
-      expect(chartRangeLabel(), '10:00〜20:00');
     });
 
     test('timeToX は範囲を幅に線形写像する', () {

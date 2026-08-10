@@ -162,19 +162,11 @@ const double kPxPerMinute = 0.53;
 /// チャート本体の幅（10:00〜20:00 の10時間ぶん）。
 const double kChartPlotWidth = (20 - 10) * 60 * kPxPerMinute;
 
-/// 横軸の範囲の表示用ラベル（例 "9:00〜20:00"）。
-String chartRangeLabel() =>
-    '${kChartRange.startMin ~/ 60}:00〜${kChartRange.endMin ~/ 60}:00';
-
 /// チャートに描ける記録か（時刻が読めて、かつ横軸の範囲内か）。
 bool isInChartRange(EmotionEntry e) {
   final m = e.minutes;
   return m != null && m >= kChartRange.startMin && m <= kChartRange.endMin;
 }
-
-/// チャートに出せない記録の件数（範囲外・時刻が読めないもの）。
-int outOfChartRangeCount(List<EmotionEntry> entries) =>
-    entries.where((e) => !isInChartRange(e)).length;
 
 /// 最初の記録が見える初期スクロール位置。
 /// 範囲内の記録が無い日は左端（9:00）を表示する。

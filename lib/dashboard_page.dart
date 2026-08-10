@@ -258,8 +258,6 @@ class _DashboardPageState extends State<DashboardPage> {
     }
 
     final estimate = estimateMood(_entries);
-    // 同じ集計を条件と本文で2回呼んでいたのを1回にまとめる。
-    final outOfRange = outOfChartRangeCount(_entries);
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
@@ -280,16 +278,6 @@ class _DashboardPageState extends State<DashboardPage> {
           )
         else
           EmotionChart(entries: _entries, peakIndex: estimate.peakIndex),
-        // 範囲外の記録があることを隠さず知らせる（件数・平均には入っている）。
-        if (outOfRange > 0)
-          Padding(
-            padding: const EdgeInsets.only(top: 8),
-            child: Text(
-              'グラフは${chartRangeLabel()}の範囲です。'
-              'この範囲外の記録が$outOfRange件あります（下の一覧に出ています）。',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-          ),
         const SizedBox(height: 16),
         // 日記はチャートのすぐ下（履歴の上）。グラフを見ながら書けるようにする。
         DiaryCard(
