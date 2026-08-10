@@ -1,5 +1,7 @@
 // チャートの横軸（固定縮尺・横スクロール・マーカーのずれ）のテスト。
 
+import 'dart:math';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -23,32 +25,39 @@ Widget wrap(List<EmotionEntry> entries, {double width = 360}) => MaterialApp(
     );
 
 void main() {
-  test('30分以上離れた記録はマーカーがずれない（真の時刻位置に出る）', () {
-    final xs = [
+  // マーカーの自動ずらし（重なり回避）は廃止し、常に真の時刻位置に厳密表示する
+  // 設計に変更された。時刻がどれだけ近くても x座標は timeToX の計算どおりになる。
+  test('マーカーの位置は常に真の時刻どおり（重なっていてもずらさない）', () {
+    final farXs = [
       timeToX(11 * 60, kChartRange, kChartPlotWidth), // 11:00
-      timeToX(11 * 60 + 30, kChartRange, kChartPlotWidth), // 11:30（ちょうど30分）
       timeToX(13 * 60, kChartRange, kChartPlotWidth), // 13:00
     ];
-    expect(spreadSymmetric(xs, kMarkerSize), xs);
+    final closeXs = [
+      timeToX(12 * 60, kChartRange, kChartPlotWidth), // 12:00
+      timeToX(12 * 60 + 5, kChartRange, kChartPlotWidth), // 12:05（5分差）
+    ];
+    // 離れていても近くても、xs 自体（timeToXの結果）がそのままマーカー位置になる。
+    // spreadSymmetric等の後処理を経由しないので、差分は時間比例のまま。
+    expect(closeXs[1] - closeXs[0],
+        closeTo((farXs[1] - farXs[0]) * (5 / 120), 1e-9));
   });
 
-  test('29分差だとわずかにずれる（30分が境目であることの確認）', () {
-    final xs = [
-      timeToX(11 * 60, kChartRange, kChartPlotWidth),
-      timeToX(11 * 60 + 29, kChartRange, kChartPlotWidth),
-    ];
-    expect(spreadSymmetric(xs, kMarkerSize), isNot(xs));
-  });
+  testWidgets('5分差でもマーカーは重なり、位置は時刻どおりになる',
+      (WidgetTester tester) async {
+    final entries = [entry('12:00', 7.75), entry('12:05', 3.02)];
+    await tester.pumpWidget(wrap(entries));
+    await tester.pumpAndSettle();
 
-  test('30分より近い記録だけ、真の時刻を中心に左右へ広がる', () {
-    final xs = [
-      timeToX(12 * 60, kChartRange, kChartPlotWidth), // 12:00 → 120
-      timeToX(12 * 60 + 10, kChartRange, kChartPlotWidth), // 12:10 → 130
-    ];
-    final spread = spreadSymmetric(xs, kMarkerSize);
-    expect(spread[1] - spread[0], closeTo(kMarkerSize, 1e-9));
-    // 2件の中心は本来の中心(125)から動かない。
-    expect((spread[0] + spread[1]) / 2, closeTo(125, 1e-9));
+    double contentX(int index) {
+      final position =
+          tester.state<ScrollableState>(find.byType(Scrollable)).position;
+      return tester.getTopLeft(find.byType(EmojiImage).at(index)).dx +
+          position.pixels;
+    }
+
+    final expectedGap = timeToX(12 * 60 + 5, kChartRange, kChartPlotWidth) -
+        timeToX(12 * 60, kChartRange, kChartPlotWidth);
+    expect(contentX(1) - contentX(0), closeTo(expectedGap, 1));
   });
 
   testWidgets('画面幅が変わっても同じ時刻は同じ位置に来る', (WidgetTester tester) async {
@@ -74,7 +83,7 @@ void main() {
     expect(narrow, closeTo(wide, 0.01));
   });
 
-  testWidgets('チャートは常に横スクロールでき、最初の記録の手前から始まる',
+  testWidgets('チャートは横スクロール可能で、最初の記録の手前から始まる',
       (WidgetTester tester) async {
     await tester.pumpWidget(wrap([entry('15:00', 5.18)]));
     await tester.pumpAndSettle();
@@ -84,12 +93,13 @@ void main() {
     );
     expect(view.scrollDirection, Axis.horizontal);
 
+    // チャート幅は1画面に収まる設計（縮尺調整による）なので、スマホ幅でも
+    // 必ずスクロールが必要とは限らない。初期位置の計算が効いていることだけ確認する。
     final position =
         tester.state<ScrollableState>(find.byType(Scrollable)).position;
-    // 10時間ぶんの幅があるので、スマホ幅では必ずスクロールできる。
-    expect(position.maxScrollExtent, greaterThan(0));
-    // 15:00（x=300）の少し手前が初期位置。
-    expect(position.pixels, closeTo(260, 1));
+    // 15:00（x≒159）の少し手前が初期位置。ただしコンテンツが画面に収まる場合は
+    // maxScrollExtentが0になり、pixelsも0に留まる。
+    expect(position.pixels, closeTo(min(119, position.maxScrollExtent), 1));
   });
 
   testWidgets('日付を切り替えると、その日の最初の記録の位置に戻る',
@@ -105,7 +115,8 @@ void main() {
     // 別の日（午前だけ記録がある日）に切り替える。
     await tester.pumpWidget(wrap([entry('11:00', 5.18)]));
     await tester.pumpAndSettle();
-    expect(position.pixels, closeTo(20, 1)); // 11:00 → 60 の40px手前
+    // 11:00（x≒32）の40px手前はマイナスになるので0に張り付く。
+    expect(position.pixels, closeTo(0, 1));
   });
 
   testWidgets('範囲外(9:00〜20:00の外)の記録はチャートに出さない',
