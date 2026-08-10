@@ -451,9 +451,11 @@ class _EmojiGridPageState extends State<EmojiGridPage> {
               constraints: const BoxConstraints(maxWidth: 480),
               child: Column(
                 children: [
-                  // 未許可のときだけ、通知をオンにする案内を出す。
-                  if (_push == PushPermission.notAsked)
+                  // 許可済み以外は、理由が分かるように必ず何か出す。
+                  // 黙って消えると、参加者も実験者も原因を追えないため。
+                  if (_push != PushPermission.granted)
                     PushPrompt(
+                      permission: _push,
                       busy: _enablingPush,
                       onEnable: _onEnablePush,
                     ),
@@ -731,15 +733,38 @@ class _ConfirmDialogState extends State<_ConfirmDialog> {
   }
 }
 
-/// 通知をオンにしてもらう案内。まだ許可を求めていないときだけ出す。
+/// 通知の案内。許可済み以外のときに、いまの状態と次にすることを示す。
+///
+/// 状態ごとに何も出さずに消えると「なぜボタンが無いのか」が誰にも分からない。
+/// とくに iOS は**ホーム画面に追加していないと通知APIそのものが使えない**ため、
+/// その場合は追加を促す文言を出す。
 ///
 /// ブラウザの許可ダイアログはユーザー操作からしか出せないので、
 /// 起動時に自動で求めるのではなくボタンを踏んでもらう形にしている。
 class PushPrompt extends StatelessWidget {
+  final PushPermission permission;
   final bool busy;
   final VoidCallback onEnable;
 
-  const PushPrompt({super.key, required this.busy, required this.onEnable});
+  const PushPrompt({
+    super.key,
+    required this.permission,
+    required this.busy,
+    required this.onEnable,
+  });
+
+  /// 状態ごとの説明文。
+  String get message => switch (permission) {
+        PushPermission.notAsked => '10時〜19時の毎時、記録の時間をお知らせします。',
+        PushPermission.denied =>
+          '通知がブロックされています。ブラウザの設定から、このサイトの通知を許可してください。',
+        PushPermission.unsupported =>
+          'この開き方では通知を使えません。共有ボタンから「ホーム画面に追加」して、そのアイコンから開いてください。',
+        PushPermission.granted => '通知はオンになっています。',
+      };
+
+  /// ボタンを出すのは、押せば状況が進む「まだ聞いていない」ときだけ。
+  bool get showButton => permission == PushPermission.notAsked;
 
   @override
   Widget build(BuildContext context) {
@@ -750,26 +775,29 @@ class PushPrompt extends StatelessWidget {
         padding: const EdgeInsets.all(12),
         child: Row(
           children: [
-            Icon(Icons.notifications_none,
-                color: theme.colorScheme.onSurfaceVariant),
+            Icon(
+              permission == PushPermission.notAsked
+                  ? Icons.notifications_none
+                  : Icons.info_outline,
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
             const SizedBox(width: 10),
             Expanded(
-              child: Text(
-                '10時〜19時の毎時、記録の時間をお知らせします。',
-                style: theme.textTheme.bodySmall,
+              child: Text(message, style: theme.textTheme.bodySmall),
+            ),
+            if (showButton) ...[
+              const SizedBox(width: 8),
+              FilledButton(
+                onPressed: busy ? null : onEnable,
+                child: busy
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Text('オンにする'),
               ),
-            ),
-            const SizedBox(width: 8),
-            FilledButton(
-              onPressed: busy ? null : onEnable,
-              child: busy
-                  ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Text('オンにする'),
-            ),
+            ],
           ],
         ),
       ),

@@ -33,7 +33,17 @@ void main() {
     expect(find.byType(EmojiGridPage), findsNothing);
   });
 
+  /// グリッドは画面に入る分しか描画されないので、12個ぶんの高さを確保する
+  /// （通知の案内カードが上に入っても全部数えられるようにするため）。
+  void useTallScreen(WidgetTester tester) {
+    tester.view.physicalSize = const Size(800, 1200);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+  }
+
   testWidgets('名前設定済みならグリッド(12タイル)が出る', (WidgetTester tester) async {
+    useTallScreen(tester);
     SharedPreferences.setMockInitialValues({'username': 'taro'});
     await tester.pumpWidget(const EmoNikkiApp());
     await tester.pumpAndSettle();
@@ -42,6 +52,7 @@ void main() {
   });
 
   testWidgets('名前を入力して登録するとグリッドに進む', (WidgetTester tester) async {
+    useTallScreen(tester);
     SharedPreferences.setMockInitialValues({});
     await tester.pumpWidget(const EmoNikkiApp());
     await tester.pumpAndSettle();

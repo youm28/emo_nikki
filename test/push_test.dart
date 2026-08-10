@@ -30,25 +30,51 @@ void main() {
   });
 
   group('通知の案内カード', () {
-    testWidgets('時間帯を伝え、オンにするボタンが押せる', (WidgetTester tester) async {
+    Widget wrap(PushPermission permission,
+            {bool busy = false, VoidCallback? onEnable}) =>
+        MaterialApp(
+          home: Scaffold(
+            body: PushPrompt(
+              permission: permission,
+              busy: busy,
+              onEnable: onEnable ?? () {},
+            ),
+          ),
+        );
+
+    testWidgets('未許可なら時間帯を伝え、オンにするボタンが押せる',
+        (WidgetTester tester) async {
       var tapped = false;
-      await tester.pumpWidget(MaterialApp(
-        home: Scaffold(
-          body: PushPrompt(busy: false, onEnable: () => tapped = true),
-        ),
-      ));
+      await tester.pumpWidget(
+          wrap(PushPermission.notAsked, onEnable: () => tapped = true));
       await tester.pumpAndSettle();
 
       expect(find.textContaining('10時〜19時'), findsOneWidget);
-
       await tester.tap(find.text('オンにする'));
       expect(tapped, isTrue);
     });
 
+    testWidgets('拒否済みならブラウザ設定を案内し、ボタンは出さない',
+        (WidgetTester tester) async {
+      await tester.pumpWidget(wrap(PushPermission.denied));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('ブロックされています'), findsOneWidget);
+      expect(find.byType(FilledButton), findsNothing);
+    });
+
+    testWidgets('通知が使えない環境ではホーム画面への追加を案内する',
+        (WidgetTester tester) async {
+      // iOSでSafariのタブのまま開いた場合など。黙って消えると原因が分からない。
+      await tester.pumpWidget(wrap(PushPermission.unsupported));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('ホーム画面に追加'), findsOneWidget);
+      expect(find.byType(FilledButton), findsNothing);
+    });
+
     testWidgets('処理中は二重に押せない', (WidgetTester tester) async {
-      await tester.pumpWidget(MaterialApp(
-        home: Scaffold(body: PushPrompt(busy: true, onEnable: () {})),
-      ));
+      await tester.pumpWidget(wrap(PushPermission.notAsked, busy: true));
       await tester.pump();
 
       final button = tester.widget<FilledButton>(find.byType(FilledButton));
