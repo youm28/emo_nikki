@@ -29,6 +29,22 @@ void main() {
     });
   });
 
+  group('ブラウザの Notification.permission からの判定', () {
+    test('default は「まだ聞いていない」＝ボタンを出す', () {
+      expect(fromBrowserPermission('default'), PushPermission.notAsked);
+    });
+
+    test('granted / denied はそのまま対応する', () {
+      expect(fromBrowserPermission('granted'), PushPermission.granted);
+      expect(fromBrowserPermission('denied'), PushPermission.denied);
+    });
+
+    test('APIが無い環境や想定外の値は unsupported', () {
+      expect(fromBrowserPermission('unsupported'), PushPermission.unsupported);
+      expect(fromBrowserPermission(''), PushPermission.unsupported);
+    });
+  });
+
   group('通知の案内カード', () {
     Widget wrap(PushPermission permission,
             {bool busy = false, VoidCallback? onEnable}) =>

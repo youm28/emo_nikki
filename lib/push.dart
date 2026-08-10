@@ -12,6 +12,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 
+import 'browser_push.dart';
+
 /// 端末トークンの保存先（`users/{username}/tokens/{token}`）。
 ///
 /// トークン自体をドキュメントIDにしているので、同じ端末から何度呼んでも
@@ -52,16 +54,25 @@ PushPermission toPushPermission(AuthorizationStatus status) {
   };
 }
 
+/// Notification API の値（`'default'`/`'granted'`/`'denied'`）を
+/// UIが扱う [PushPermission] に変換する。
+PushPermission fromBrowserPermission(String permission) {
+  return switch (permission) {
+    'granted' => PushPermission.granted,
+    'denied' => PushPermission.denied,
+    'default' => PushPermission.notAsked,
+    _ => PushPermission.unsupported,
+  };
+}
+
 /// いまの許可状態を返す（ダイアログは出さない）。
+///
+/// FirebaseMessaging ではなくブラウザの Notification API を直接読む。
+/// プラグイン側は「非対応環境」と判断すると例外を投げることがあり、
+/// それを拾うと通知を使える端末でもボタンを出せなくなるため。
 Future<PushPermission> currentPushPermission() async {
   if (!kIsWeb) return PushPermission.unsupported;
-  try {
-    final settings = await FirebaseMessaging.instance.getNotificationSettings();
-    return toPushPermission(settings.authorizationStatus);
-  } catch (e) {
-    debugPrint('通知の状態を取得できませんでした: $e');
-    return PushPermission.unsupported;
-  }
+  return fromBrowserPermission(browserNotificationPermission());
 }
 
 /// 許可を求めてトークンを保存する。
