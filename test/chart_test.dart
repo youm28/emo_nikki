@@ -28,13 +28,15 @@ void main() {
   // マーカーの自動ずらし（重なり回避）は廃止し、常に真の時刻位置に厳密表示する
   // 設計に変更された。時刻がどれだけ近くても x座標は timeToX の計算どおりになる。
   test('マーカーの位置は常に真の時刻どおり（重なっていてもずらさない）', () {
+    const range = kChartBaseRange;
+    final width = plotWidthFor(range);
     final farXs = [
-      timeToX(11 * 60, kChartRange, kChartPlotWidth), // 11:00
-      timeToX(13 * 60, kChartRange, kChartPlotWidth), // 13:00
+      timeToX(11 * 60, range, width), // 11:00
+      timeToX(13 * 60, range, width), // 13:00
     ];
     final closeXs = [
-      timeToX(12 * 60, kChartRange, kChartPlotWidth), // 12:00
-      timeToX(12 * 60 + 5, kChartRange, kChartPlotWidth), // 12:05（5分差）
+      timeToX(12 * 60, range, width), // 12:00
+      timeToX(12 * 60 + 5, range, width), // 12:05（5分差）
     ];
     // 離れていても近くても、xs 自体（timeToXの結果）がそのままマーカー位置になる。
     // spreadSymmetric等の後処理を経由しないので、差分は時間比例のまま。
@@ -55,8 +57,9 @@ void main() {
           position.pixels;
     }
 
-    final expectedGap = timeToX(12 * 60 + 5, kChartRange, kChartPlotWidth) -
-        timeToX(12 * 60, kChartRange, kChartPlotWidth);
+    final expectedGap =
+        timeToX(12 * 60 + 5, kChartBaseRange, plotWidthFor(kChartBaseRange)) -
+            timeToX(12 * 60, kChartBaseRange, plotWidthFor(kChartBaseRange));
     expect(contentX(1) - contentX(0), closeTo(expectedGap, 1));
   });
 
@@ -119,16 +122,34 @@ void main() {
     expect(position.pixels, closeTo(0, 1));
   });
 
-  testWidgets('範囲外(9:00〜20:00の外)の記録はチャートに出さない',
+  testWidgets('既定の範囲(10:00〜20:00)の外の記録もチャートに出る',
       (WidgetTester tester) async {
+    // 記録数・推定感情・平均は全記録から計算しているので、グラフだけ
+    // 時間外を落とすと数字と食い違う。横軸のほうを広げて合わせている。
     await tester.pumpWidget(wrap([
-      entry('07:30', 5.18), // 範囲外
-      entry('12:00', 7.75), // 範囲内
-      entry('22:00', 3.02), // 範囲外
+      entry('07:30', 5.18),
+      entry('12:00', 7.75),
+      entry('22:00', 3.02),
     ]));
     await tester.pumpAndSettle();
 
-    // チャートに出るマーカーは範囲内の1件だけ。
-    expect(find.byType(EmojiImage), findsOneWidget);
+    expect(find.byType(EmojiImage), findsNWidgets(3));
+  });
+
+  testWidgets('時間外の記録がある日は横スクロールできる幅になる',
+      (WidgetTester tester) async {
+    await tester.pumpWidget(wrap([entry('12:00', 7.75)]));
+    await tester.pumpAndSettle();
+    final normal =
+        tester.state<ScrollableState>(find.byType(Scrollable)).position;
+    final normalExtent = normal.maxScrollExtent;
+
+    await tester.pumpWidget(wrap([entry('07:30', 5.18), entry('12:00', 7.75)]));
+    await tester.pumpAndSettle();
+    final widened =
+        tester.state<ScrollableState>(find.byType(Scrollable)).position;
+
+    expect(widened.maxScrollExtent, greaterThan(normalExtent),
+        reason: '範囲が広がった分だけスクロールできる量も増えるはず');
   });
 }

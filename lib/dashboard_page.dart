@@ -602,10 +602,13 @@ const int _tickIntervalHours = 1; // 目盛りは1時間おき
 /// 感情推移チャート（要件書 §F2）。
 /// CustomPaint で折れ線と目盛りを描き、絵文字マーカーは Positioned で重ねる。
 ///
-/// 横軸は 0:00〜24:00・1分=1px で**固定**し、画面に入らない分は横スクロールする。
+/// 横軸の**縮尺**は 1分=0.53px で固定し、画面に入らない分は横スクロールする。
 /// 画面幅に合わせて伸縮させていた頃は、狭い画面ほど1時間あたりの幅が縮んで
-/// マーカーが重なり、重なり回避で本来の時刻から大きくずれていた。縮尺と範囲を
-/// 固定したことで、同じ時刻は常に同じ位置に来る（日をまたいだ比較もできる）。
+/// マーカーが重なり、重なり回避で本来の時刻から大きくずれていた。
+///
+/// **範囲**は 10:00〜20:00 を最低保証しつつ、その日の記録に合わせて広げる
+/// （[chartRangeFor]）。固定していた頃は時間外の記録がチャートから消える一方で
+/// 記録数・推定感情・平均には入っており、グラフと数字が食い違っていた。
 /// 縦軸ラベルはスクロール領域の外に置くので常に見える。
 class EmotionChart extends StatefulWidget {
   final List<EmotionEntry> entries;
@@ -650,9 +653,10 @@ class _EmotionChartState extends State<EmotionChart> {
 
   @override
   Widget build(BuildContext context) {
-    const range = kChartRange;
+    // 範囲はその日の記録しだいで広がる（時間外の記録も必ずどこかに出る）。
+    final range = chartRangeFor(widget.entries);
     const plotHeight = _plotHeight;
-    const plotWidth = kChartPlotWidth;
+    final plotWidth = plotWidthFor(range);
 
     return SizedBox(
       height: _height,
@@ -679,10 +683,10 @@ class _EmotionChartState extends State<EmotionChart> {
           // チャート本体。24時間ぶんの固定幅なので常に横スクロールになる。
           Expanded(
             child: Builder(builder: (context) {
-              // 時刻 → x（時刻不明・範囲外の記録はチャートから除外）。
+              // 時刻 → x（時刻が読めない壊れた記録だけ除外される）。
               final plotted = [
                 for (final e in widget.entries)
-                  if (isInChartRange(e)) e,
+                  if (isInChartRange(e, range)) e,
               ];
               var xs = [
                 for (final e in plotted) timeToX(e.minutes!, range, plotWidth),

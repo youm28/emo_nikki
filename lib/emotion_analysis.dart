@@ -138,13 +138,11 @@ double? averageValence(List<EmotionEntry> entries) {
 const double kChartValenceMin = 2;
 const double kChartValenceMax = 8;
 
-/// 横軸の範囲は 10:00〜20:00 で固定する（記録を促す時間帯に合わせた表示範囲）。
+/// 横軸の既定の範囲（10:00〜20:00）。記録を促す時間帯に合わせてある。
 ///
-/// 日によって範囲を変えると同じ時刻が別の位置に来てしまい、日をまたいだ比較が
-/// できなくなるため固定する。画面に収まらない分は横スクロールで見る。
-/// この範囲の外の記録はチャートには出ないが、集計・履歴には含まれる
-/// （ダッシュボード側で件数を知らせる）。
-const ({int startMin, int endMin}) kChartRange =
+/// これは「最低これだけは出す」という下限であって上限ではない。
+/// 実際の範囲は [chartRangeFor] がその日の記録に合わせて決める。
+const ({int startMin, int endMin}) kChartBaseRange =
     (startMin: 10 * 60, endMin: 20 * 60);
 
 /// 横軸の縮尺：1分 = 0.55px。
@@ -159,27 +157,53 @@ const ({int startMin, int endMin}) kChartRange =
 /// 必ず真の時刻位置に出る。通知は毎正時（60分間隔）なので実運用では足りる。
 const double kPxPerMinute = 0.53;
 
-/// チャート本体の幅（10:00〜20:00 の10時間ぶん）。
-const double kChartPlotWidth = (20 - 10) * 60 * kPxPerMinute;
+/// その日の横軸の範囲。[kChartBaseRange] を最低保証し、そこからはみ出す記録が
+/// あればその記録を含む正時まで広げる。
+///
+/// 範囲を 10:00〜20:00 に固定していた頃は、時間外の記録がチャートから消える一方で
+/// 記録数・推定感情・平均には入っており、グラフと数字が食い違っていた。
+/// 数字のほうは正しい（その日の全記録を要約している）ので、グラフ側を合わせる。
+///
+/// 縮尺 [kPxPerMinute] は固定のままなので、範囲が広がっても「同じ時間差は同じ
+/// 間隔」は保たれる。広がった日は横スクロールが増えるだけ。
+({int startMin, int endMin}) chartRangeFor(List<EmotionEntry> entries) {
+  var start = kChartBaseRange.startMin;
+  var end = kChartBaseRange.endMin;
+  for (final e in entries) {
+    final m = e.minutes;
+    if (m == null) continue; // 時刻が読めない記録は広げる根拠にしない
+    if (m < start) start = (m ~/ 60) * 60; // 手前の正時まで
+    if (m > end) end = ((m + 59) ~/ 60) * 60; // 次の正時まで（最大 24:00）
+  }
+  return (startMin: start, endMin: end);
+}
 
-/// チャートに描ける記録か（時刻が読めて、かつ横軸の範囲内か）。
-bool isInChartRange(EmotionEntry e) {
+/// チャート本体の幅（範囲の長さ × 縮尺）。
+double plotWidthFor(({int startMin, int endMin}) range) =>
+    (range.endMin - range.startMin) * kPxPerMinute;
+
+/// チャートに描ける記録か。
+///
+/// 範囲は [chartRangeFor] が記録に合わせて広げるので、時刻さえ読めれば普通は
+/// すべて描ける。時刻が壊れている記録だけがここで落ちる。
+bool isInChartRange(EmotionEntry e, ({int startMin, int endMin}) range) {
   final m = e.minutes;
-  return m != null && m >= kChartRange.startMin && m <= kChartRange.endMin;
+  return m != null && m >= range.startMin && m <= range.endMin;
 }
 
 /// 最初の記録が見える初期スクロール位置。
-/// 範囲内の記録が無い日は左端（9:00）を表示する。
+/// 描ける記録が無い日は左端を表示する。
 /// [entries] は時刻昇順であることを前提とする。
 double initialScrollOffset(List<EmotionEntry> entries, {double leading = 40}) {
-  var firstMin = kChartRange.startMin; // 範囲内に記録が無い日の既定位置
+  final range = chartRangeFor(entries);
+  var firstMin = range.startMin; // 描ける記録が無い日の既定位置
   for (final e in entries) {
-    if (isInChartRange(e)) {
+    if (isInChartRange(e, range)) {
       firstMin = e.minutes!;
       break;
     }
   }
-  final offset = timeToX(firstMin, kChartRange, kChartPlotWidth) - leading;
+  final offset = timeToX(firstMin, range, plotWidthFor(range)) - leading;
   return offset < 0 ? 0 : offset;
 }
 

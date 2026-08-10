@@ -64,20 +64,55 @@ void main() {
   });
 
   group('チャート座標', () {
-    test('横軸範囲は日によらず 10:00〜20:00 固定（1分=0.53px）', () {
-      expect(kChartRange, (startMin: 600, endMin: 1200));
-      expect(kChartPlotWidth, closeTo(318, 0.01)); // 10時間 × 0.53
-      // 縮尺は常に固定（範囲を変えてもここは変わらない）。
-      expect(timeToX(10 * 60, kChartRange, kChartPlotWidth), 0);
-      expect(timeToX(15 * 60, kChartRange, kChartPlotWidth), closeTo(159, 0.01));
-      expect(timeToX(20 * 60, kChartRange, kChartPlotWidth), closeTo(318, 0.01));
+    test('既定の範囲は 10:00〜20:00（1分=0.53px）', () {
+      expect(kChartBaseRange, (startMin: 600, endMin: 1200));
+      final range = chartRangeFor([entry('12:00', 5)]);
+      expect(range, kChartBaseRange);
+      expect(plotWidthFor(range), closeTo(318, 0.01)); // 10時間 × 0.53
+      expect(timeToX(10 * 60, range, plotWidthFor(range)), 0);
+      expect(
+          timeToX(15 * 60, range, plotWidthFor(range)), closeTo(159, 0.01));
+      expect(
+          timeToX(20 * 60, range, plotWidthFor(range)), closeTo(318, 0.01));
     });
 
-    test('範囲外の記録はチャートに出さない', () {
-      expect(isInChartRange(entry('10:00', 5)), isTrue);
-      expect(isInChartRange(entry('20:00', 5)), isTrue); // 端は含む
-      expect(isInChartRange(entry('09:59', 5)), isFalse);
-      expect(isInChartRange(entry('20:01', 5)), isFalse);
+    test('記録が範囲外なら、その記録を含む正時まで広げる', () {
+      // 集計（記録数・推定感情・平均）は全記録を対象にしているので、
+      // グラフだけ時間外を捨てると数字と食い違う。範囲のほうを合わせる。
+      expect(chartRangeFor([entry('07:30', 5)]),
+          (startMin: 7 * 60, endMin: 20 * 60));
+      expect(chartRangeFor([entry('22:10', 5)]),
+          (startMin: 10 * 60, endMin: 23 * 60));
+      // 両側にはみ出す日は両方広がる。
+      expect(chartRangeFor([entry('06:05', 5), entry('23:50', 5)]),
+          (startMin: 6 * 60, endMin: 24 * 60));
+      // 正時ちょうどは端に合わせるだけで、余分な1時間は足さない。
+      expect(chartRangeFor([entry('21:00', 5)]),
+          (startMin: 10 * 60, endMin: 21 * 60));
+    });
+
+    test('範囲が広がると幅も比例して伸びる（縮尺は固定）', () {
+      final wide = chartRangeFor([entry('07:00', 5)]);
+      // 13時間ぶん。1分あたりの px は変わらない。
+      expect(plotWidthFor(wide), closeTo(13 * 60 * 0.53, 0.01));
+    });
+
+    test('時刻が読めない記録だけがチャートから落ちる', () {
+      final range = chartRangeFor([entry('12:00', 5)]);
+      expect(isInChartRange(entry('10:00', 5), range), isTrue);
+      expect(isInChartRange(entry('20:00', 5), range), isTrue); // 端は含む
+      expect(isInChartRange(entry('09:59', 5), range), isFalse);
+
+      // 時刻が壊れた記録は範囲を広げる根拠にもならず、描画対象にもならない。
+      final broken = entry('bad', 5);
+      expect(chartRangeFor([broken]), kChartBaseRange);
+      expect(isInChartRange(broken, chartRangeFor([broken])), isFalse);
+    });
+
+    test('時間外の記録もチャートに出る（描画対象から漏れない）', () {
+      final entries = [entry('07:00', 5), entry('12:00', 5), entry('23:00', 5)];
+      final range = chartRangeFor(entries);
+      expect(entries.every((e) => isInChartRange(e, range)), isTrue);
     });
 
     test('timeToX は範囲を幅に線形写像する', () {
@@ -92,12 +127,16 @@ void main() {
       expect(initialScrollOffset([entry('15:00', 5)]), closeTo(119, 1));
       // 左端寄りの記録はマイナスにせず 0 に張り付く。
       expect(initialScrollOffset([entry('10:20', 5)]), 0);
-      // 記録が無い日・範囲外だけの日は左端（10:00）。
+      // 記録が無い日は左端（10:00）。
       expect(initialScrollOffset([]), 0);
+      // 時間外の記録は範囲ごと広がるので、そこが左端になる（0に張り付く）。
       expect(initialScrollOffset([entry('07:00', 5)]), 0);
-      // 範囲外の記録は飛ばして、範囲内の最初の記録に合わせる。
-      expect(initialScrollOffset([entry('07:00', 5), entry('15:00', 5)]),
-          closeTo(119, 1));
+      // 時間外の記録も飛ばさない。7:00 が最初の記録なら、そこが左端になる。
+      // （以前は範囲外として読み飛ばし、10:00 に合わせていた）
+      expect(initialScrollOffset([entry('07:00', 5), entry('15:00', 5)]), 0);
+      // 記録が既定範囲に収まる日は今までどおり、最初の記録の 40px 手前。
+      expect(initialScrollOffset([entry('13:00', 5), entry('15:00', 5)]),
+          closeTo(3 * 60 * 0.53 - 40, 1));
     });
 
     test('valenceToY は 2〜8 を高さに写像（8が上=0）', () {
