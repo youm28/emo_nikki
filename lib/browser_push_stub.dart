@@ -3,3 +3,6 @@ library;
 
 /// ブラウザの通知許可の状態。Web以外では常に 'unsupported'。
 String browserNotificationPermission() => 'unsupported';
+
+/// 許可ダイアログ。Web以外では出せない。
+Future<String> requestBrowserNotificationPermission() async => 'unsupported';

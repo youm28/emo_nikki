@@ -91,27 +91,18 @@ class PushResult {
   bool get ok => permission == PushPermission.granted && error == null;
 }
 
-/// 許可を求めてトークンを保存する。
+/// 許可が取れている前提で、宛先(トークン)を取得して保存する。
 ///
-/// 必ずボタンなどのユーザー操作から呼ぶこと（そうでないとブラウザが
-/// 許可ダイアログを出さない）。
-Future<PushResult> enablePush(String username) async {
+/// 許可ダイアログ自体は [requestBrowserNotificationPermission] を
+/// **タップのハンドラから直接**呼んで先に済ませておくこと（iOS Safari の制約。
+/// 詳細は browser_push_web.dart のコメント）。
+Future<PushResult> registerToken(
+  String username,
+  PushPermission permission,
+) async {
   if (!kIsWeb) return const PushResult(PushPermission.unsupported);
+  if (permission != PushPermission.granted) return PushResult(permission);
 
-  // 許可ダイアログを出す。ここが失敗しても、実際の状態はブラウザから読めるので
-  // 例外は握りつぶして次に進む。
-  try {
-    await FirebaseMessaging.instance.requestPermission();
-  } catch (e) {
-    debugPrint('許可要求で例外（状態はブラウザから読み直す）: $e');
-  }
-
-  final permission = fromBrowserPermission(browserNotificationPermission());
-  if (permission != PushPermission.granted) {
-    return PushResult(permission);
-  }
-
-  // ここから先は「許可されている」ことが確定している。
   try {
     final token = await FirebaseMessaging.instance.getToken(
       vapidKey: kVapidKey.isEmpty ? null : kVapidKey,

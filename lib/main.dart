@@ -6,6 +6,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'activity.dart';
+import 'browser_push.dart';
 import 'dashboard_page.dart';
 import 'emoji.dart';
 import 'emotion_analysis.dart';
@@ -309,9 +310,15 @@ class _EmojiGridPageState extends State<EmojiGridPage> {
   /// 「オンにする」を押したとき。ブラウザの許可ダイアログはユーザー操作から
   /// でないと出せないので、必ずここ（ボタンのコールバック）で呼ぶ。
   Future<void> _onEnablePush() async {
+    // iOS Safari は「タップから連続した呼び出し」でないと許可ダイアログを
+    // 出さない。await を挟む前に、ここで要求を開始する。
+    final requested = requestBrowserNotificationPermission();
+
     final messenger = ScaffoldMessenger.of(context);
     setState(() => _enablingPush = true);
-    final result = await enablePush(widget.username);
+
+    final permission = fromBrowserPermission(await requested);
+    final result = await registerToken(widget.username, permission);
     if (!mounted) return;
     setState(() {
       _push = result.permission;
@@ -353,7 +360,9 @@ class _EmojiGridPageState extends State<EmojiGridPage> {
     final message = switch (result.permission) {
       PushPermission.granted => '通知をオンにしました',
       PushPermission.denied => 'ブラウザで通知がブロックされています。設定から許可してください',
-      _ => '通知を設定できませんでした',
+      // ダイアログが出ずに終わった場合。もう一度押せば出ることがある。
+      PushPermission.notAsked => '許可のダイアログが表示されませんでした。もう一度お試しください',
+      PushPermission.unsupported => 'この環境では通知を使えませんでした',
     };
     messenger.showSnackBar(SnackBar(content: Text(message)));
   }
