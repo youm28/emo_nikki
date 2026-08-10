@@ -6,3 +6,6 @@ String browserNotificationPermission() => 'unsupported';
 
 /// 許可ダイアログ。Web以外では出せない。
 Future<String> requestBrowserNotificationPermission() async => 'unsupported';
+
+/// 通知の宛先。Web以外では取得できない。
+Future<String> getPushToken(String vapidKey) async => '';

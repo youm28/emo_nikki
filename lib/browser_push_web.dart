@@ -25,6 +25,24 @@ String browserNotificationPermission() {
   }
 }
 
+/// 通知の宛先(FCMトークン)を取得する。
+///
+/// index.html で定義した `emoGetPushToken` を呼ぶ。firebase_messaging
+/// プラグインを使わないのは、iPhone上のWebでも「ネイティブiOSアプリ」と
+/// 判定され、Webに実装の無い getAPNSToken を呼んで必ず失敗するため。
+Future<String> getPushToken(String vapidKey) async {
+  if (!globalContext.has('emoGetPushToken')) {
+    throw StateError('通知用のスクリプトが読み込まれていません');
+  }
+  final promise = globalContext.callMethod<JSPromise<JSAny?>>(
+    'emoGetPushToken'.toJS,
+    vapidKey.toJS,
+  );
+  final token = await promise.toDart;
+  if (token == null) return '';
+  return (token as JSString).toDart;
+}
+
 /// 許可ダイアログを出して、その結果を返す。
 ///
 /// **タップのハンドラから、await を挟まずに呼ぶこと。**

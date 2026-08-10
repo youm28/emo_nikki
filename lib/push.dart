@@ -9,7 +9,6 @@
 library;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 
 import 'browser_push.dart';
@@ -42,18 +41,6 @@ enum PushPermission {
   unsupported,
 }
 
-/// FirebaseMessaging の状態を、UIが扱いやすい [PushPermission] に変換する。
-/// ロジックを純粋関数に切り出してテストできるようにしている。
-PushPermission toPushPermission(AuthorizationStatus status) {
-  return switch (status) {
-    AuthorizationStatus.authorized ||
-    AuthorizationStatus.provisional =>
-      PushPermission.granted,
-    AuthorizationStatus.denied => PushPermission.denied,
-    AuthorizationStatus.notDetermined => PushPermission.notAsked,
-  };
-}
-
 /// Notification API の値（`'default'`/`'granted'`/`'denied'`）を
 /// UIが扱う [PushPermission] に変換する。
 PushPermission fromBrowserPermission(String permission) {
@@ -67,9 +54,9 @@ PushPermission fromBrowserPermission(String permission) {
 
 /// いまの許可状態を返す（ダイアログは出さない）。
 ///
-/// FirebaseMessaging ではなくブラウザの Notification API を直接読む。
-/// プラグイン側は「非対応環境」と判断すると例外を投げることがあり、
-/// それを拾うと通知を使える端末でもボタンを出せなくなるため。
+/// 通知まわりは firebase_messaging プラグインを使わず、ブラウザの標準APIと
+/// Firebase の JSライブラリだけで完結させている。プラグインは iPhone 上の Web を
+/// ネイティブiOSアプリと誤判定して失敗するため。
 Future<PushPermission> currentPushPermission() async {
   if (!kIsWeb) return PushPermission.unsupported;
   return fromBrowserPermission(browserNotificationPermission());
@@ -104,10 +91,8 @@ Future<PushResult> registerToken(
   if (permission != PushPermission.granted) return PushResult(permission);
 
   try {
-    final token = await FirebaseMessaging.instance.getToken(
-      vapidKey: kVapidKey.isEmpty ? null : kVapidKey,
-    );
-    if (token == null || token.isEmpty) {
+    final token = await getPushToken(kVapidKey);
+    if (token.isEmpty) {
       return PushResult(permission, error: '宛先(トークン)が空で返りました');
     }
     await saveToken(username: username, token: token);
@@ -127,10 +112,8 @@ Future<PushResult> registerToken(
 Future<void> registerTokenIfGranted(String username) async {
   if (!kIsWeb) return;
   try {
-    final token = await FirebaseMessaging.instance.getToken(
-      vapidKey: kVapidKey.isEmpty ? null : kVapidKey,
-    );
-    if (token == null || token.isEmpty) return;
+    final token = await getPushToken(kVapidKey);
+    if (token.isEmpty) return;
     await saveToken(username: username, token: token);
   } catch (e) {
     debugPrint('トークンの再登録に失敗（通知以外の動作には影響なし）: $e');

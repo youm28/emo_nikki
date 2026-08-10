@@ -40,8 +40,6 @@ dependencies:
   geolocator: ^14.0.3
   # 登録後にアドレスバーを ?u=名前 に差し替えるために History API を使う。
   web: ^1.1.1
-  firebase_messaging: ^16.5.0
-
 dev_dependencies:
   flutter_test:
     sdk: flutter

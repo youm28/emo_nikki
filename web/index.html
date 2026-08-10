@@ -46,6 +46,37 @@
     For more details:
     * https://docs.flutter.dev/platform-integration/web/initialization
   -->
+  <!--
+    通知の宛先(FCMトークン)の取得。
+
+    firebase_messaging プラグインは、iPhone上のWebでも「ネイティブiOSアプリ」と
+    判定してiOS専用の処理(getAPNSToken)を呼んでしまい、Webには実装が無いため
+    必ず失敗する。そのためプラグインを経由せず、Firebase公式のJSライブラリを
+    直接使って取得する。
+  -->
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-messaging-compat.js"></script>
+  <script>
+    window.emoGetPushToken = async function (vapidKey) {
+      if (!firebase.apps.length) {
+        firebase.initializeApp({
+          apiKey: 'AIzaSyDsChpiww9yyHKfcorCfOeVv06yaZeYUuo',
+          appId: '1:567681005392:web:b38f15f625319d526fde55',
+          messagingSenderId: '567681005392',
+          projectId: 'emo-nikki-eyuma1218-4155e',
+          authDomain: 'emo-nikki-eyuma1218-4155e.firebaseapp.com',
+          storageBucket: 'emo-nikki-eyuma1218-4155e.firebasestorage.app'
+        });
+      }
+      // 受信用のservice workerを明示的に登録して渡す。
+      var registration = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
+      return await firebase.messaging().getToken({
+        vapidKey: vapidKey || undefined,
+        serviceWorkerRegistration: registration
+      });
+    };
+  </script>
+
   <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>
