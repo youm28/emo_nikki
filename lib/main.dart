@@ -314,14 +314,46 @@ class _EmojiGridPageState extends State<EmojiGridPage> {
     final result = await enablePush(widget.username);
     if (!mounted) return;
     setState(() {
-      _push = result;
+      _push = result.permission;
       _enablingPush = false;
     });
 
-    final message = switch (result) {
+    // 許可はされたのに宛先が登録できなかった場合は、原因が分からないと
+    // 手の打ちようがないので、エラーをそのまま読める形で出す。
+    if (result.error != null) {
+      await showDialog<void>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('通知の登録に失敗しました'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('通知の許可自体は取れています。下の内容を管理者に伝えてください。'),
+                const SizedBox(height: 12),
+                SelectableText(
+                  result.error!,
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('閉じる'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
+    final message = switch (result.permission) {
       PushPermission.granted => '通知をオンにしました',
       PushPermission.denied => 'ブラウザで通知がブロックされています。設定から許可してください',
-      _ => '通知を設定できませんでした。ホーム画面に追加してから開いてください',
+      _ => '通知を設定できませんでした',
     };
     messenger.showSnackBar(SnackBar(content: Text(message)));
   }

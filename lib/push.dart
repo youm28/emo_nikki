@@ -75,30 +75,55 @@ Future<PushPermission> currentPushPermission() async {
   return fromBrowserPermission(browserNotificationPermission());
 }
 
+/// 通知を有効にした結果。
+///
+/// 許可の状態と、宛先(トークン)の登録に失敗した理由を分けて持つ。
+/// 「許可はされたがトークンが取れなかった」を unsupported に丸めてしまうと、
+/// ホーム画面に追加済みの人に「追加してください」と出て混乱するため。
+class PushResult {
+  final PushPermission permission;
+
+  /// トークン登録に失敗したときの理由（原因調査のためそのまま表示する）。
+  final String? error;
+
+  const PushResult(this.permission, {this.error});
+
+  bool get ok => permission == PushPermission.granted && error == null;
+}
+
 /// 許可を求めてトークンを保存する。
 ///
 /// 必ずボタンなどのユーザー操作から呼ぶこと（そうでないとブラウザが
-/// 許可ダイアログを出さない）。成功したら [PushPermission.granted] を返す。
-Future<PushPermission> enablePush(String username) async {
-  if (!kIsWeb) return PushPermission.unsupported;
-  try {
-    final messaging = FirebaseMessaging.instance;
-    final settings = await messaging.requestPermission();
-    final permission = toPushPermission(settings.authorizationStatus);
-    if (permission != PushPermission.granted) return permission;
+/// 許可ダイアログを出さない）。
+Future<PushResult> enablePush(String username) async {
+  if (!kIsWeb) return const PushResult(PushPermission.unsupported);
 
-    final token = await messaging.getToken(
+  // 許可ダイアログを出す。ここが失敗しても、実際の状態はブラウザから読めるので
+  // 例外は握りつぶして次に進む。
+  try {
+    await FirebaseMessaging.instance.requestPermission();
+  } catch (e) {
+    debugPrint('許可要求で例外（状態はブラウザから読み直す）: $e');
+  }
+
+  final permission = fromBrowserPermission(browserNotificationPermission());
+  if (permission != PushPermission.granted) {
+    return PushResult(permission);
+  }
+
+  // ここから先は「許可されている」ことが確定している。
+  try {
+    final token = await FirebaseMessaging.instance.getToken(
       vapidKey: kVapidKey.isEmpty ? null : kVapidKey,
     );
     if (token == null || token.isEmpty) {
-      debugPrint('通知トークンを取得できませんでした');
-      return PushPermission.unsupported;
+      return PushResult(permission, error: '宛先(トークン)が空で返りました');
     }
     await saveToken(username: username, token: token);
-    return PushPermission.granted;
+    return PushResult(permission);
   } catch (e) {
-    debugPrint('通知の有効化に失敗: $e');
-    return PushPermission.unsupported;
+    debugPrint('トークンの取得・保存に失敗: $e');
+    return PushResult(permission, error: '$e');
   }
 }
 

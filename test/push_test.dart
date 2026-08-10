@@ -45,6 +45,26 @@ void main() {
     });
   });
 
+  group('有効化の結果', () {
+    test('許可済みでエラー無しなら成功', () {
+      const r = PushResult(PushPermission.granted);
+      expect(r.ok, isTrue);
+    });
+
+    test('許可はされたが宛先の登録に失敗した場合は成功にしない', () {
+      // ここを unsupported に丸めると「ホーム画面に追加して」と誤案内してしまう。
+      const r = PushResult(PushPermission.granted, error: 'AbortError: ...');
+      expect(r.ok, isFalse);
+      expect(r.permission, PushPermission.granted);
+      expect(r.error, isNotNull);
+    });
+
+    test('拒否された場合はエラー無しでも成功にしない', () {
+      const r = PushResult(PushPermission.denied);
+      expect(r.ok, isFalse);
+    });
+  });
+
   group('通知の案内カード', () {
     Widget wrap(PushPermission permission,
             {bool busy = false, VoidCallback? onEnable}) =>
