@@ -270,7 +270,7 @@ class _DashboardPageState extends State<DashboardPage> {
           onNext: () => _moveDay(1),
         ),
         const SizedBox(height: 12),
-        _SummaryCards(entries: _entries, estimate: estimate),
+        SummaryCards(entries: _entries, estimate: estimate),
         const SizedBox(height: 16),
         if (_entries.isEmpty)
           // 空状態（要件書 §F5）。
@@ -507,11 +507,11 @@ class _DateNavigator extends StatelessWidget {
 }
 
 /// サマリーカード3枚（要件書 §F3）。
-class _SummaryCards extends StatelessWidget {
+class SummaryCards extends StatelessWidget {
   final List<EmotionEntry> entries;
   final MoodEstimate estimate;
 
-  const _SummaryCards({required this.entries, required this.estimate});
+  const SummaryCards({super.key, required this.entries, required this.estimate});
 
   @override
   Widget build(BuildContext context) {
@@ -520,53 +520,64 @@ class _SummaryCards extends StatelessWidget {
         ? null
         : emojiItemByName(entries[estimate.peakIndex!].name);
 
-    return Row(
-      children: [
-        Expanded(
-          child: _SummaryCard(
-            title: '今日の記録数',
-            child: Text('${entries.length} 件',
-                style: Theme.of(context).textTheme.titleLarge),
-          ),
-        ),
-        const SizedBox(width: 8),
-        Expanded(
-          child: _SummaryCard(
-            title: '推定感情',
-            child: entries.isEmpty
-                ? Text('−', style: Theme.of(context).textTheme.titleLarge)
-                : Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      if (peakItem != null)
-                        SizedBox(
-                          width: 28,
-                          height: 28,
-                          child: EmojiImage(item: peakItem),
-                        ),
-                      const SizedBox(width: 6),
-                      Flexible(
-                        child: Text(
-                          estimate.mood.labelJa,
-                          style: Theme.of(context).textTheme.titleMedium,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                    ],
-                  ),
-          ),
-        ),
-        const SizedBox(width: 8),
-        Expanded(
-          child: _SummaryCard(
-            title: '平均 Valence',
-            child: Text(
-              avg == null ? '−' : avg.toStringAsFixed(1),
-              style: Theme.of(context).textTheme.titleLarge,
+    // 推定感情カードだけ絵文字の分だけ背が高くなるので、3枚の高さを揃える。
+    return IntrinsicHeight(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Expanded(
+            child: _SummaryCard(
+              title: '今日の記録数',
+              child: Text('${entries.length} 件',
+                  style: Theme.of(context).textTheme.titleLarge),
             ),
           ),
-        ),
-      ],
+          const SizedBox(width: 8),
+          Expanded(
+            child: _SummaryCard(
+              title: '推定感情',
+              // 絵文字とラベルを横に並べると、カード1枚の幅（スマホで約80px）に
+              // 「ニュートラル」6文字が収まらず「…」で切れていた。縦に積んで
+              // ラベルに幅を全部渡し、それでも足りない画面では字を縮めて表示する。
+              child: entries.isEmpty
+                  ? Text('−', style: Theme.of(context).textTheme.titleLarge)
+                  : Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (peakItem != null) ...[
+                          SizedBox(
+                            width: 24,
+                            height: 24,
+                            child: EmojiImage(item: peakItem),
+                          ),
+                          const SizedBox(height: 2),
+                        ],
+                        // 切り詰めずに必ず全文を出す。狭いときだけ小さくなる。
+                        FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Text(
+                            estimate.mood.labelJa,
+                            style: Theme.of(context).textTheme.titleMedium,
+                            maxLines: 1,
+                            softWrap: false,
+                          ),
+                        ),
+                      ],
+                    ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: _SummaryCard(
+              title: '平均 Valence',
+              child: Text(
+                avg == null ? '−' : avg.toStringAsFixed(1),
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+            ),
+          ),
+          ],
+      ),
     );
   }
 }
