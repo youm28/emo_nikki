@@ -10,6 +10,7 @@ import 'dashboard_page.dart';
 import 'emoji.dart';
 import 'emotion_analysis.dart';
 import 'firebase_options.dart';
+import 'push.dart';
 import 'url_updater.dart';
 
 // 絵文字・行動データと共通ウィジェットは別ファイルに分離した。
@@ -283,6 +284,48 @@ class EmojiGridPage extends StatefulWidget {
 class _EmojiGridPageState extends State<EmojiGridPage> {
   bool _saving = false; // 保存中フラグ（二重タップ防止＋インジケータ表示）
 
+  // 通知（リマインダー）の許可状態。未許可のときだけ案内を出す。
+  PushPermission _push = PushPermission.unsupported;
+  bool _enablingPush = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPushPermission();
+  }
+
+  Future<void> _loadPushPermission() async {
+    final permission = await currentPushPermission();
+    if (!mounted) return;
+    setState(() => _push = permission);
+
+    // 通知許可はサイト単位なので、同じ端末で別のIDを開くと
+    // 「許可済み」のまま そのIDの宛先が未登録になる。ここで登録し直す。
+    if (permission == PushPermission.granted) {
+      await registerTokenIfGranted(widget.username);
+    }
+  }
+
+  /// 「オンにする」を押したとき。ブラウザの許可ダイアログはユーザー操作から
+  /// でないと出せないので、必ずここ（ボタンのコールバック）で呼ぶ。
+  Future<void> _onEnablePush() async {
+    final messenger = ScaffoldMessenger.of(context);
+    setState(() => _enablingPush = true);
+    final result = await enablePush(widget.username);
+    if (!mounted) return;
+    setState(() {
+      _push = result;
+      _enablingPush = false;
+    });
+
+    final message = switch (result) {
+      PushPermission.granted => '通知をオンにしました',
+      PushPermission.denied => 'ブラウザで通知がブロックされています。設定から許可してください',
+      _ => '通知を設定できませんでした。ホーム画面に追加してから開いてください',
+    };
+    messenger.showSnackBar(SnackBar(content: Text(message)));
+  }
+
   /// 絵文字タップ時：確認＋行動選択ダイアログを出し、「記録」が押されたら保存する。
   Future<void> _onEmojiTap(EmojiItem item) async {
     if (_saving) return; // Step 6: 保存中はタップを無視（二重送信防止）
@@ -406,17 +449,29 @@ class _EmojiGridPageState extends State<EmojiGridPage> {
             child: ConstrainedBox(
               // Webの広い画面でも横に伸びすぎないよう最大幅を制限する。
               constraints: const BoxConstraints(maxWidth: 480),
-              child: GridView.count(
-                crossAxisCount: 3, // 3列
-                padding: const EdgeInsets.all(16),
-                mainAxisSpacing: 16,
-                crossAxisSpacing: 16,
+              child: Column(
                 children: [
-                  for (final item in kEmojiList)
-                    EmojiTile(
-                      item: item,
-                      onTap: () => _onEmojiTap(item),
+                  // 未許可のときだけ、通知をオンにする案内を出す。
+                  if (_push == PushPermission.notAsked)
+                    PushPrompt(
+                      busy: _enablingPush,
+                      onEnable: _onEnablePush,
                     ),
+                  Expanded(
+                    child: GridView.count(
+                      crossAxisCount: 3, // 3列
+                      padding: const EdgeInsets.all(16),
+                      mainAxisSpacing: 16,
+                      crossAxisSpacing: 16,
+                      children: [
+                        for (final item in kEmojiList)
+                          EmojiTile(
+                            item: item,
+                            onTap: () => _onEmojiTap(item),
+                          ),
+                      ],
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -672,6 +727,52 @@ class _ConfirmDialogState extends State<_ConfirmDialog> {
           child: const Text('記録'),
         ),
       ],
+    );
+  }
+}
+
+/// 通知をオンにしてもらう案内。まだ許可を求めていないときだけ出す。
+///
+/// ブラウザの許可ダイアログはユーザー操作からしか出せないので、
+/// 起動時に自動で求めるのではなくボタンを踏んでもらう形にしている。
+class PushPrompt extends StatelessWidget {
+  final bool busy;
+  final VoidCallback onEnable;
+
+  const PushPrompt({super.key, required this.busy, required this.onEnable});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Card(
+      margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Row(
+          children: [
+            Icon(Icons.notifications_none,
+                color: theme.colorScheme.onSurfaceVariant),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                '10時〜19時の毎時、記録の時間をお知らせします。',
+                style: theme.textTheme.bodySmall,
+              ),
+            ),
+            const SizedBox(width: 8),
+            FilledButton(
+              onPressed: busy ? null : onEnable,
+              child: busy
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Text('オンにする'),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

@@ -12,5 +12,13 @@ service cloud.firestore {
     match /users/{userId}/diaries/{day} {
       allow read, create, update: if true;
     }
+
+    // 通知用の端末トークン。ドキュメントIDがトークンそのものなので
+    // 同じ端末から何度登録しても増えない。
+    // 送信側(Admin SDK)はルールを介さず読むので、read は不要だが
+    // 登録状態をアプリから確認できるよう許可しておく。
+    match /users/{userId}/tokens/{token} {
+      allow read, create, update: if true;
+    }
   }
 }

@@ -49,3 +49,10 @@ app.*.map.json
 
 # Claude Code personal settings
 .claude/settings.local.json
+
+# Firebase サービスアカウントの秘密鍵。
+# プロジェクト全体の管理者権限を持つため、絶対にコミットしない。
+# （通知の送信に使うが、値は GitHub の Secrets に置く）
+*-firebase-adminsdk-*.json
+serviceAccountKey.json
+service-account*.json

@@ -1,0 +1,34 @@
+name: 感情記録のリマインダー
+
+# 元研究(Emoji_watch)に合わせて 10:00〜19:00 JST の毎時に送る。
+# GitHub Actions の cron は UTC なので、JST(UTC+9) から 9 時間引いて 01:00〜10:00 UTC。
+# 混雑時は数分ずれることがあるが、リマインダーなので許容する。
+on:
+  schedule:
+    - cron: '0 1-10 * * *'
+  # 動作確認用に手動でも回せるようにしておく。
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: '送信せず対象だけ確認する'
+        type: boolean
+        default: false
+
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: 依存パッケージのインストール
+        run: pip install firebase-admin
+
+      - name: リマインダーを送信
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          python tools/send_reminders.py ${{ inputs.dry_run && '--dry-run' || '' }}
