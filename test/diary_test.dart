@@ -220,4 +220,28 @@ void main() {
       expect(button.onPressed, isNotNull);
     });
   });
+
+  group('日記の入力欄', () {
+    testWidgets('変換前（未確定）の文字に下線を引かない', (tester) async {
+      final controller = NoComposingUnderlineController();
+      // 「今日はたのしかった」の後半が変換前、という状態を作る。
+      controller.value = const TextEditingValue(
+        text: '今日はたのしかった',
+        composing: TextRange(start: 3, end: 9),
+      );
+
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(body: TextField(controller: controller)),
+      ));
+
+      final span = controller.buildTextSpan(
+        context: tester.element(find.byType(TextField)),
+        style: const TextStyle(),
+        withComposing: true,
+      );
+      // 未確定部分だけを別スタイルに切り分けていない＝下線が付かない。
+      expect(span.children, isNull);
+      expect(span.toPlainText(), '今日はたのしかった');
+    });
+  });
 }

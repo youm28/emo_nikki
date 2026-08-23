@@ -19,6 +19,28 @@ const double kMarkerSize = 20; // 絵文字マーカーの大きさ（px）。�
 /// 行動レーンのアイコンの大きさ（px）。感情マーカーより一回り小さくする。
 const double kActivitySize = 16; // 行動レーンのアイコンの大きさ（px）。絵文字より小さくする。
 
+/// 日記入力欄用のコントローラ。
+///
+/// Flutterは既定で「変換前（未確定）の文字」に下線を引く。日記を書くたびに
+/// 文字の下に線が出るのは気が散るので、下線を付けずにそのまま描く。
+/// （下線は見た目だけの装飾で、変換の動作そのものには関係しない）
+class NoComposingUnderlineController extends TextEditingController {
+  @override
+  TextSpan buildTextSpan({
+    required BuildContext context,
+    TextStyle? style,
+    required bool withComposing,
+  }) {
+    // withComposing を false にして親に任せると、未確定部分を分けずに
+    // ひとつづきの文字として描いてくれる＝下線が付かない。
+    return super.buildTextSpan(
+      context: context,
+      style: style,
+      withComposing: false,
+    );
+  }
+}
+
 /// ダッシュボード画面：1日の感情推移チャート＋サマリー＋履歴（要件書 §3）。
 class DashboardPage extends StatefulWidget {
   final String username;
@@ -37,7 +59,7 @@ class _DashboardPageState extends State<DashboardPage> {
 
   // 日記。保存ボタン方式なので「保存済みの本文」を持っておき、
   // 入力中の本文と突き合わせて未保存かどうかを判定する。
-  final TextEditingController _diaryController = TextEditingController();
+  final TextEditingController _diaryController = NoComposingUnderlineController();
   String _savedDiaryText = '';
   DateTime? _diaryUpdatedAt;
   bool _diaryExists = false; // createdAt を初回だけ付けるための判定
