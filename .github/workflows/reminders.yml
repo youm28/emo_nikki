@@ -36,7 +36,7 @@ jobs:
           python-version: '3.12'
 
       - name: 依存パッケージのインストール
-        run: pip install firebase-admin
+        run: pip install -r tools/requirements.txt
 
       - name: リマインダーを送信
         env:
