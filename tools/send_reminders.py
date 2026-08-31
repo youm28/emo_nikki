@@ -29,6 +29,7 @@ GitHub Actions の cron は「その時刻に必ず動く」保証がなく、�
 import argparse
 import json
 import os
+import socket
 import sys
 from datetime import datetime, timedelta, timezone
 
@@ -109,6 +110,16 @@ def slot_id(now: datetime) -> str:
     return f"{now:%Y-%m-%d-%H}"
 
 
+def source_name() -> str:
+    """どこから送ったかの名前。既定はホスト名。
+
+    ミニPC（毎時0分）と GitHub Actions（7,22,37,52分）を同時に動かしており、
+    どちらが送ったかを実験ログとして残したいのでここで記録する。
+    ミニPCが落ちていた時間帯は GitHub 側の名前が入る。
+    """
+    return os.environ.get("REMINDER_SOURCE") or socket.gethostname()
+
+
 def claim_slot(db: firestore.Client, now: datetime) -> bool:
     """この時間帯の送信権を取れたら True。すでに送っていれば False。
 
@@ -117,7 +128,15 @@ def claim_slot(db: firestore.Client, now: datetime) -> bool:
     """
     doc = db.collection("reminders").document(slot_id(now))
     try:
-        doc.create({"sentAt": firestore.SERVER_TIMESTAMP})
+        doc.create(
+            {
+                "sentAt": firestore.SERVER_TIMESTAMP,
+                # 予定時刻ちょうどに送れたのか、遅れて拾われたのかを見るため、
+                # サーバー時刻とは別に送信側の時刻も残す。
+                "localTime": now.strftime("%Y-%m-%d %H:%M:%S%z"),
+                "source": source_name(),
+            }
+        )
         return True
     except google_exceptions.AlreadyExists:
         return False
@@ -145,7 +164,7 @@ def main() -> int:
     args = parser.parse_args()
 
     now = datetime.now(JST)
-    print(f"[INFO] 現在 {now:%Y-%m-%d %H:%M} JST")
+    print(f"[INFO] 現在 {now:%Y-%m-%d %H:%M} JST / 送信元 {source_name()}")
 
     db = init_firebase()
 

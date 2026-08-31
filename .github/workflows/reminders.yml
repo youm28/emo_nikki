@@ -41,6 +41,9 @@ jobs:
       - name: リマインダーを送信
         env:
           GOOGLE_APPLICATION_CREDENTIALS_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          # 実行のたびに変わるランナー名ではなく、固定の名前で記録に残す。
+          # ミニPCと並走させるので、どちらが送ったかを後から見分けるため。
+          REMINDER_SOURCE: github-actions
         run: |
           python tools/send_reminders.py \
             ${{ inputs.dry_run && '--dry-run' || '' }} \
