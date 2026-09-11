@@ -45,7 +45,14 @@ class NoComposingUnderlineController extends TextEditingController {
 class DashboardPage extends StatefulWidget {
   final String username;
 
-  const DashboardPage({super.key, required this.username});
+  /// 読み込み後に日記欄までスクロールするか（21時の日記の通知から来たとき）。
+  final bool scrollToDiary;
+
+  const DashboardPage({
+    super.key,
+    required this.username,
+    this.scrollToDiary = false,
+  });
 
   @override
   State<DashboardPage> createState() => _DashboardPageState();
@@ -65,6 +72,10 @@ class _DashboardPageState extends State<DashboardPage> {
   bool _diaryExists = false; // createdAt を初回だけ付けるための判定
   bool _diaryLoadError = false; // 日記だけ読めなかった（上書き事故を避けて保存を止める）
   bool _savingDiary = false;
+
+  // 日記欄へスクロールするための目印。スクロールは最初の読み込み後に1回だけ。
+  final GlobalKey _diaryKey = GlobalKey();
+  late bool _pendingScrollToDiary = widget.scrollToDiary;
 
   @override
   void initState() {
@@ -123,6 +134,19 @@ class _DashboardPageState extends State<DashboardPage> {
         _diaryUpdatedAt = diary?.updatedAt;
         _loading = false;
       });
+      if (_pendingScrollToDiary) {
+        _pendingScrollToDiary = false;
+        // 日記欄が描かれてから、画面内に入るまでスクロールする。
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          final target = _diaryKey.currentContext;
+          if (target == null || !target.mounted) return;
+          Scrollable.ensureVisible(
+            target,
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeOut,
+          );
+        });
+      }
     } catch (e) {
       debugPrint('記録の取得に失敗: $e');
       if (!mounted) return;
@@ -308,6 +332,7 @@ class _DashboardPageState extends State<DashboardPage> {
           const SizedBox(height: 16),
           // 日記はチャートのすぐ下（履歴の上）。グラフを見ながら書けるようにする。
           DiaryCard(
+            key: _diaryKey,
             controller: _diaryController,
             entries: _entries,
             savedText: _savedDiaryText,

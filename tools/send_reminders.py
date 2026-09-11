@@ -3,7 +3,10 @@
 Web アプリ自身は「毎時0分に鳴らす」予約ができないため、外部から定時に
 このスクリプトを実行して通知を送る。
 
-元研究(Emoji_watch)に合わせ、10:00〜19:00 の毎時に1回送る。
+送るのは2種類:
+    - 10:00〜19:00 の毎時: 感情の記録（元研究 Emoji_watch に合わせた時間帯）
+    - 21:00: その日を振り返る日記（タップでダッシュボードの日記欄が開く）
+どちらを送るかは実行時刻で決まるので、呼び出し側は毎時実行するだけでよい。
 
 呼び出し元:
     本番は大学のミニPC上の systemd タイマー (emo-reminder.timer)。
@@ -30,6 +33,7 @@ Web アプリ自身は「毎時0分に鳴らす」予約ができないため、
     python tools/send_reminders.py            # その時間帯がまだなら送る
     python tools/send_reminders.py --dry-run  # 送信せず対象だけ表示する
     python tools/send_reminders.py --force    # 時間帯の判定を無視して送る（手動確認用）
+    python tools/send_reminders.py --force --kind diary  # 日記の通知を今すぐ試す
 """
 
 import argparse
@@ -37,24 +41,63 @@ import json
 import os
 import socket
 import sys
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from urllib.parse import urlencode
 
 import firebase_admin
 from firebase_admin import credentials, firestore, messaging
 from google.api_core import exceptions as google_exceptions
 
-# 通知を送る時間帯（JST）。両端を含む＝10時台〜19時台の10回。
 JST = timezone(timedelta(hours=9))
-SEND_HOUR_FIRST = 10
-SEND_HOUR_LAST = 19
 
 # 通知をタップしたときに開くURL。?u=<ユーザー名> を付けて本人の画面に入れる。
 APP_URL = "https://emo-nikki-eyuma1218-4155e.web.app/"
 
-# iOSは通知の2行目にアプリ名（from Emo日記）を自動で入れるので、
-# タイトルにアプリ名を入れると重複する。ここは用件そのものを書く。
-TITLE = "記録の時間です"
-BODY = "いまの気分を記録しませんか？"
+
+@dataclass(frozen=True)
+class Reminder:
+    """1種類の通知。kind は reminders に残す種別名。
+
+    iOSは通知の2行目にアプリ名（from Emo日記）を自動で入れるので、
+    タイトルにアプリ名を入れると重複する。タイトルは用件そのものを書く。
+    """
+
+    kind: str
+    title: str
+    body: str
+    # タップしたときに開く画面。None なら記録画面（アプリの最初の画面）。
+    open: str | None = None
+
+
+# 10〜19時の毎時：感情の記録（元研究 Emoji_watch に合わせた時間帯）。
+RECORD = Reminder(
+    kind="record",
+    title="記録の時間です",
+    body="いまの気分を記録しませんか？",
+)
+# 21時：その日の振り返り日記。記録の最終回(19時台)のあと、寝る前に書けるように。
+# タップするとダッシュボードの日記欄が開く（アプリ側で ?open=diary を見る）。
+DIARY = Reminder(
+    kind="diary",
+    title="日記の時間です",
+    body="今日一日をふりかえって、日記を書きませんか？",
+    open="diary",
+)
+REMINDERS = {r.kind: r for r in (RECORD, DIARY)}
+
+RECORD_HOUR_FIRST = 10
+RECORD_HOUR_LAST = 19
+DIARY_HOUR = 21
+
+
+def reminder_for_hour(hour: int) -> Reminder | None:
+    """その時刻(JST)に送る通知。送らない時間帯なら None。"""
+    if RECORD_HOUR_FIRST <= hour <= RECORD_HOUR_LAST:
+        return RECORD
+    if hour == DIARY_HOUR:
+        return DIARY
+    return None
 
 
 def init_firebase() -> firestore.Client:
@@ -94,18 +137,28 @@ def fetch_targets(db: firestore.Client) -> list[tuple[str, str]]:
     return targets
 
 
-def build_message(username: str, token: str) -> messaging.Message:
+def build_link(username: str, reminder: Reminder) -> str:
+    """タップで開くURL。本人の ?u= に、開く画面の指定(open)を足す。"""
+    params = {"u": username}
+    if reminder.open:
+        params["open"] = reminder.open
+    return f"{APP_URL}?{urlencode(params)}"
+
+
+def build_message(
+    username: str, token: str, reminder: Reminder
+) -> messaging.Message:
     """1件ぶんの通知を組み立てる。タップで本人のURLを開く。"""
     return messaging.Message(
         token=token,
         webpush=messaging.WebpushConfig(
             notification=messaging.WebpushNotification(
-                title=TITLE,
-                body=BODY,
+                title=reminder.title,
+                body=reminder.body,
                 icon="/icons/Icon-192.png",
             ),
             fcm_options=messaging.WebpushFCMOptions(
-                link=f"{APP_URL}?u={username}",
+                link=build_link(username, reminder),
             ),
         ),
     )
@@ -125,7 +178,7 @@ def source_name() -> str:
     return os.environ.get("REMINDER_SOURCE") or socket.gethostname()
 
 
-def claim_slot(db: firestore.Client, now: datetime) -> bool:
+def claim_slot(db: firestore.Client, now: datetime, reminder: Reminder) -> bool:
     """この時間帯の送信権を取れたら True。すでに送っていれば False。
 
     create は同じIDが在ると必ず失敗するので、複数の実行が重なっても
@@ -140,6 +193,7 @@ def claim_slot(db: firestore.Client, now: datetime) -> bool:
                 # サーバー時刻とは別に送信側の時刻も残す。
                 "localTime": now.strftime("%Y-%m-%d %H:%M:%S%z"),
                 "source": source_name(),
+                "kind": reminder.kind,
             }
         )
         return True
@@ -166,20 +220,33 @@ def main() -> int:
         action="store_true",
         help="時間帯の判定を無視して送る（手動での動作確認用）",
     )
+    parser.add_argument(
+        "--kind",
+        choices=sorted(REMINDERS),
+        help="--force で送る通知の種類（省略時はその時刻の種類、無ければ record）",
+    )
     args = parser.parse_args()
 
     now = datetime.now(JST)
     print(f"[INFO] 現在 {now:%Y-%m-%d %H:%M} JST / 送信元 {source_name()}")
 
-    db = init_firebase()
-
-    # 送信時間帯の外なら何もしない。
-    # cron が大きく遅れて次の時間帯に食い込んだ回を、ここで落とす。
-    if not args.force and not (SEND_HOUR_FIRST <= now.hour <= SEND_HOUR_LAST):
-        print(
-            f"[INFO] {SEND_HOUR_FIRST}時〜{SEND_HOUR_LAST}時台の外なので送りません"
+    # 何を送るかは時刻で決まる。--force のときだけ --kind で選べる。
+    # 送信時間帯の外なら何もしない（遅れて次の時間帯に食い込んだ回もここで落ちる）。
+    if args.force:
+        reminder = (
+            REMINDERS[args.kind] if args.kind else reminder_for_hour(now.hour) or RECORD
         )
-        return 0
+    else:
+        reminder = reminder_for_hour(now.hour)
+        if reminder is None:
+            print(
+                f"[INFO] 送信時間帯（{RECORD_HOUR_FIRST}〜{RECORD_HOUR_LAST}時台・"
+                f"{DIARY_HOUR}時台）の外なので送りません"
+            )
+            return 0
+    print(f"[INFO] 種類 {reminder.kind}「{reminder.title}」")
+
+    db = init_firebase()
 
     targets = fetch_targets(db)
 
@@ -196,7 +263,7 @@ def main() -> int:
 
     # 送信権の確保は実際に送る直前に行う。ここで取ってしまうと、
     # このあと落ちたときにその時間帯が「送信済み」のまま残ってしまう。
-    if not args.force and not claim_slot(db, now):
+    if not args.force and not claim_slot(db, now, reminder):
         print(f"[INFO] {now.hour}時台はすでに送信済みなので送りません")
         return 0
 
@@ -204,7 +271,7 @@ def main() -> int:
     stale = 0
     for username, token in targets:
         try:
-            messaging.send(build_message(username, token))
+            messaging.send(build_message(username, token, reminder))
             sent += 1
         except messaging.UnregisteredError:
             # 端末側で通知を切った・アプリを消した等。残しておくと毎回失敗するので消す。

@@ -26,6 +26,11 @@ on:
         description: '時間帯の判定を無視して送る（今すぐ届くか試す）'
         type: boolean
         default: false
+      kind:
+        description: 'force のときに送る種類（auto=その時刻の種類）'
+        type: choice
+        options: [auto, record, diary]
+        default: auto
 
 jobs:
   send:
@@ -49,4 +54,5 @@ jobs:
         run: |
           python tools/send_reminders.py \
             ${{ inputs.dry_run && '--dry-run' || '' }} \
-            ${{ inputs.force && '--force' || '' }}
+            ${{ inputs.force && '--force' || '' }} \
+            ${{ inputs.force && inputs.kind != 'auto' && format('--kind {0}', inputs.kind) || '' }}

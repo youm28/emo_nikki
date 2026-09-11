@@ -18,6 +18,14 @@ void main() {
       expect(usernameFromUrl(Uri.parse('https://x.app/?u=')), isNull);
       expect(usernameFromUrl(Uri.parse('https://x.app/?t=abc')), isNull);
     });
+
+    test('日記の通知のリンク（?open=diary）だけ日記欄を開く', () {
+      expect(wantsDiaryFromUrl(Uri.parse('https://x.app/?u=p01&open=diary')),
+          isTrue);
+      expect(wantsDiaryFromUrl(Uri.parse('https://x.app/?u=p01')), isFalse);
+      expect(wantsDiaryFromUrl(Uri.parse('https://x.app/?u=p01&open=x')),
+          isFalse);
+    });
   });
 
   group('使う名前の決定', () {

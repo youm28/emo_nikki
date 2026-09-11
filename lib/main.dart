@@ -60,6 +60,9 @@ String? usernameFromUrl(Uri uri) {
   return (u == null || u.isEmpty) ? null : u;
 }
 
+/// URL が日記欄を開くよう求めているか（21時の日記の通知は `?open=diary` を付ける）。
+bool wantsDiaryFromUrl(Uri uri) => uri.queryParameters['open'] == 'diary';
+
 /// URL の `?u=` と保存済みの値から、実際に使う名前を決める。
 ///
 /// - 新しい `?u=` が来たらそれを採用する（参加者への配布リンク／端末を変えた・
@@ -100,6 +103,7 @@ class HomeGate extends StatefulWidget {
 class _HomeGateState extends State<HomeGate> {
   bool _loading = true; // 名前の読み込み中
   String? _username; // null/空 = 未設定
+  bool _openDiary = false; // 日記の通知から開かれた（最初にダッシュボードの日記欄を出す）
 
   @override
   void initState() {
@@ -122,9 +126,16 @@ class _HomeGateState extends State<HomeGate> {
       await prefs.setString(kLastUrlUsernameKey, resolved.username!);
     }
 
+    // 日記の通知から来たときは一度だけ日記欄を開く。?open= はアドレスバーから
+    // 消しておく（残すと、リロードやホーム画面追加のたびに日記が開いてしまう）。
+    final openDiary =
+        resolved.username != null && wantsDiaryFromUrl(Uri.base);
+    if (openDiary) replaceUrl(personalRoute(resolved.username!));
+
     if (!mounted) return;
     setState(() {
       _username = resolved.username;
+      _openDiary = openDiary;
       _loading = false;
     });
   }
@@ -152,7 +163,7 @@ class _HomeGateState extends State<HomeGate> {
     if (_username == null) {
       return NameInputPage(onRegister: _onRegister);
     }
-    return EmojiGridPage(username: _username!);
+    return EmojiGridPage(username: _username!, openDiaryOnStart: _openDiary);
   }
 }
 
@@ -277,7 +288,15 @@ class EmojiGridPage extends StatefulWidget {
   /// ゲートを通過したユーザー名（保存先パスに使う）。
   final String username;
 
-  const EmojiGridPage({super.key, required this.username});
+  /// 開いた直後にダッシュボードの日記欄へ進むか（日記の通知から来たとき）。
+  /// ダッシュボードはこの画面の上に積むので、戻れば記録画面に戻れる。
+  final bool openDiaryOnStart;
+
+  const EmojiGridPage({
+    super.key,
+    required this.username,
+    this.openDiaryOnStart = false,
+  });
 
   @override
   State<EmojiGridPage> createState() => _EmojiGridPageState();
@@ -294,6 +313,23 @@ class _EmojiGridPageState extends State<EmojiGridPage> {
   void initState() {
     super.initState();
     _loadPushPermission();
+    if (widget.openDiaryOnStart) {
+      // 画面ができあがってからでないと Navigator に積めない。
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _openDashboard(scrollToDiary: true);
+      });
+    }
+  }
+
+  void _openDashboard({bool scrollToDiary = false}) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => DashboardPage(
+          username: widget.username,
+          scrollToDiary: scrollToDiary,
+        ),
+      ),
+    );
   }
 
   Future<void> _loadPushPermission() async {
@@ -470,13 +506,7 @@ class _EmojiGridPageState extends State<EmojiGridPage> {
           IconButton(
             icon: const Icon(Icons.bar_chart),
             tooltip: 'ダッシュボード',
-            onPressed: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => DashboardPage(username: widget.username),
-                ),
-              );
-            },
+            onPressed: _openDashboard,
           ),
           IconButton(
             icon: const Icon(Icons.manage_accounts),
