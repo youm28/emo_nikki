@@ -60,7 +60,8 @@ String? usernameFromUrl(Uri uri) {
   return (u == null || u.isEmpty) ? null : u;
 }
 
-/// URL が日記欄を開くよう求めているか（21時の日記の通知は `?open=diary` を付ける）。
+/// URL が日記を書くためにダッシュボードを開くよう求めているか
+/// （21時の日記の通知は `?open=diary` を付ける）。
 bool wantsDiaryFromUrl(Uri uri) => uri.queryParameters['open'] == 'diary';
 
 /// URL の `?u=` と保存済みの値から、実際に使う名前を決める。
@@ -103,7 +104,7 @@ class HomeGate extends StatefulWidget {
 class _HomeGateState extends State<HomeGate> {
   bool _loading = true; // 名前の読み込み中
   String? _username; // null/空 = 未設定
-  bool _openDiary = false; // 日記の通知から開かれた（最初にダッシュボードの日記欄を出す）
+  bool _openDiary = false; // 日記の通知から開かれた（最初にダッシュボードを出す）
 
   @override
   void initState() {
@@ -126,8 +127,8 @@ class _HomeGateState extends State<HomeGate> {
       await prefs.setString(kLastUrlUsernameKey, resolved.username!);
     }
 
-    // 日記の通知から来たときは一度だけ日記欄を開く。?open= はアドレスバーから
-    // 消しておく（残すと、リロードやホーム画面追加のたびに日記が開いてしまう）。
+    // 日記の通知から来たときは一度だけダッシュボードを開く。?open= はアドレスバー
+    // から消しておく（残すと、リロードやホーム画面追加のたびに開いてしまう）。
     final openDiary =
         resolved.username != null && wantsDiaryFromUrl(Uri.base);
     if (openDiary) replaceUrl(personalRoute(resolved.username!));
@@ -288,7 +289,7 @@ class EmojiGridPage extends StatefulWidget {
   /// ゲートを通過したユーザー名（保存先パスに使う）。
   final String username;
 
-  /// 開いた直後にダッシュボードの日記欄へ進むか（日記の通知から来たとき）。
+  /// 開いた直後にダッシュボードへ進むか（日記の通知から来たとき）。
   /// ダッシュボードはこの画面の上に積むので、戻れば記録画面に戻れる。
   final bool openDiaryOnStart;
 
@@ -316,18 +317,18 @@ class _EmojiGridPageState extends State<EmojiGridPage> {
     if (widget.openDiaryOnStart) {
       // 画面ができあがってからでないと Navigator に積めない。
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _openDashboard(scrollToDiary: true);
+        if (mounted) _openDashboard();
       });
     }
   }
 
-  void _openDashboard({bool scrollToDiary = false}) {
+  /// ダッシュボードを上から表示する。日記の通知から来たときも日記欄へは
+  /// スクロールしない。日記はチャートのすぐ下にあり、その日の感情の流れを
+  /// 見ながら書けるようにしてあるので、チャートを画面の外へ押し出さない。
+  void _openDashboard() {
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => DashboardPage(
-          username: widget.username,
-          scrollToDiary: scrollToDiary,
-        ),
+        builder: (_) => DashboardPage(username: widget.username),
       ),
     );
   }
