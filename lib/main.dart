@@ -4,11 +4,17 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:image_picker/image_picker.dart' show XFile;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'activity.dart';
 import 'browser_push.dart';
 import 'dashboard_page.dart';
+import 'dev_access.dart';
+// 開発用ダッシュボード（地図の部品を含む）は、開くときにだけ読み込む。
+// 参加者を含む全員が毎回ダウンロードするアプリ本体を大きくしないため。
+import 'dev_dashboard_page.dart' deferred as dev;
+import 'dev_photos.dart';
 import 'emoji.dart';
 import 'layout.dart';
 import 'emotion_analysis.dart';
@@ -317,10 +323,15 @@ class _EmojiGridPageState extends State<EmojiGridPage> {
   PushPermission _push = PushPermission.unsupported;
   bool _enablingPush = false;
 
+  // 開発用の鍵（パスワードを入れた端末でだけ入っている）。
+  // これがあるときだけ、記録のあとに「写真を追加」を出す。
+  String? _devKey;
+
   @override
   void initState() {
     super.initState();
     _loadPushPermission();
+    _loadDevKey();
     if (widget.openDiaryOnStart) {
       // 画面ができあがってからでないと Navigator に積めない。
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -338,6 +349,62 @@ class _EmojiGridPageState extends State<EmojiGridPage> {
         builder: (_) => DashboardPage(username: widget.username),
       ),
     );
+  }
+
+  Future<void> _loadDevKey() async {
+    final key = await loadDevKey();
+    if (!mounted) return;
+    setState(() => _devKey = key);
+  }
+
+  /// 開発用ダッシュボード。鍵が無ければ先にパスワードを聞く。
+  Future<void> _openDevDashboard() async {
+    await dev.loadLibrary(); // 初回だけ通信が発生する（2回目以降はすぐ終わる）
+    if (!mounted) return;
+    final key = _devKey ?? await dev.showDevUnlockDialog(context);
+    if (key == null || !mounted) return;
+    setState(() => _devKey = key);
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) =>
+            dev.DevDashboardPage(username: widget.username, dataKey: key),
+      ),
+    );
+    // 開発用ダッシュボードで「ロック」された場合に備えて読み直す。
+    _loadDevKey();
+  }
+
+  /// 確認画面の「写真も追加」で撮った写真を、保存した記録に付けて保存する。
+  /// カメラは確認画面のボタンを押した時点ですでに開いている（[capture]）。
+  Future<void> _savePhoto(
+    Future<XFile?> capture, {
+    required String dataKey,
+    required String emotionId,
+    required Map<String, dynamic> record,
+  }) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final result = await savePhoto(
+        capture,
+        dataKey: dataKey,
+        username: widget.username,
+        emotionId: emotionId,
+        day: record['day'] as String,
+        time: record['time'] as String,
+        emojiName: record['name'] as String,
+      );
+      final message = switch (result) {
+        PhotoResult.saved => '写真を保存しました',
+        PhotoResult.cancelled => null,
+        PhotoResult.tooLarge => '写真が大きすぎて保存できませんでした',
+      };
+      if (message != null) {
+        messenger.showSnackBar(SnackBar(content: Text(message)));
+      }
+    } catch (e) {
+      debugPrint('写真の保存に失敗: $e');
+      messenger.showSnackBar(SnackBar(content: Text('写真の保存に失敗しました: $e')));
+    }
   }
 
   Future<void> _loadPushPermission() async {
@@ -417,9 +484,12 @@ class _EmojiGridPageState extends State<EmojiGridPage> {
     if (_saving) return; // Step 6: 保存中はタップを無視（二重送信防止）
 
     // null = キャンセル。activity は未選択なら null（行動の入力は任意）。
-    final result = await showDialog<({ActivityItem? activity})>(
+    // photo は「写真も追加」を押したときだけ入る（すでにカメラが開いている）。
+    final devKey = _devKey;
+    final result = await showDialog<ConfirmResult>(
       context: context,
-      builder: (context) => _ConfirmDialog(item: item),
+      builder: (context) =>
+          _ConfirmDialog(item: item, allowPhoto: devKey != null),
     );
 
     if (result == null) return;
@@ -469,12 +539,14 @@ class _EmojiGridPageState extends State<EmojiGridPage> {
       }
 
       final payload = {...record, 'createdAt': FieldValue.serverTimestamp()};
+      final String savedId;
       if (targetId != null) {
         // 直近の記録を上書き（1件にまとめる）。
         await col.doc(targetId).set(payload);
+        savedId = targetId;
         debugPrint('Firestore の直近記録を上書きしました');
       } else {
-        await col.add(payload);
+        savedId = (await col.add(payload)).id;
         debugPrint('Firestore に保存しました');
       }
 
@@ -483,6 +555,19 @@ class _EmojiGridPageState extends State<EmojiGridPage> {
           content: Text(targetId != null ? '記録を更新しました' : '記録を保存しました'),
         ),
       );
+
+      // 「写真も追加」だった場合は、撮り終わるのを待って記録に付ける。
+      // 記録はすでに保存済みなので、写真で失敗・中止しても記録は残る。
+      // 撮影は時間がかかることがあるので、くるくる表示は先に消す（待たない）。
+      final photo = result.photo;
+      if (photo != null && devKey != null) {
+        unawaited(_savePhoto(
+          photo,
+          dataKey: devKey,
+          emotionId: savedId,
+          record: record,
+        ));
+      }
     } catch (e) {
       // Step 6: 保存失敗時のフィードバック。
       debugPrint('保存に失敗: $e');
@@ -516,6 +601,12 @@ class _EmojiGridPageState extends State<EmojiGridPage> {
             icon: const Icon(Icons.bar_chart),
             tooltip: 'ダッシュボード',
             onPressed: _openDashboard,
+          ),
+          // 開発用ダッシュボード（パスワードを入れた人だけ開ける）。
+          IconButton(
+            icon: const Icon(Icons.lock_outline),
+            tooltip: '開発用ダッシュボード',
+            onPressed: _openDevDashboard,
           ),
           IconButton(
             icon: const Icon(Icons.manage_accounts),
@@ -693,14 +784,22 @@ class _AccountDialog extends StatelessWidget {
   }
 }
 
+/// 確認画面の結果。[photo] は「写真も追加」を押したときだけ入る。
+typedef ConfirmResult = ({ActivityItem? activity, Future<XFile?>? photo});
+
 /// 絵文字タップ後の確認ダイアログ。選んだ気分の確認と、行動の選択を1画面で行う。
 ///
-/// 「記録」で `(activity: 選んだ行動 or null)` を返し、キャンセル/画面外タップでは
-/// null を返す。行動の入力は任意なので、未選択のままでも記録できる。
+/// 「記録」で `(activity: 選んだ行動 or null, photo: null)` を返し、
+/// キャンセル/画面外タップでは null を返す。行動の入力は任意なので、
+/// 未選択のままでも記録できる。
+///
+/// [allowPhoto] のとき（開発用の鍵がある端末）は「写真も追加」も出す。
+/// 押すとその場でカメラを開き、記録と写真の両方を行う。
 class _ConfirmDialog extends StatefulWidget {
   final EmojiItem item;
+  final bool allowPhoto;
 
-  const _ConfirmDialog({required this.item});
+  const _ConfirmDialog({required this.item, this.allowPhoto = false});
 
   @override
   State<_ConfirmDialog> createState() => _ConfirmDialogState();
@@ -713,8 +812,38 @@ class _ConfirmDialogState extends State<_ConfirmDialog> {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
 
+    void record() => Navigator.pop<ConfirmResult>(
+          context,
+          (activity: _selected, photo: null),
+        );
+    void recordWithPhoto() {
+      // iPhone はタップの直後でないとカメラを開かせないので、
+      // 閉じるより先にカメラを開く。撮影の結果は記録の保存後に受け取る。
+      final photo = startPhotoCapture();
+      Navigator.pop<ConfirmResult>(context, (activity: _selected, photo: photo));
+    }
+
+    const title = Text('この気分で記録しますか？');
     return AlertDialog(
-      title: const Text('この気分で記録しますか？'),
+      // 写真のボタンがあるときは、スマホ幅でも2つのボタンが横に並ぶよう
+      // 画面の端との余白を詰める（既定の左右40pxのままだと縦に積まれる）。
+      insetPadding: widget.allowPhoto
+          ? const EdgeInsets.symmetric(horizontal: 20, vertical: 24)
+          : const EdgeInsets.symmetric(horizontal: 40, vertical: 24),
+      // 写真のボタンがあるときは「キャンセル」をタイトル横の×にして、
+      // 下の段を「写真も追加」「記録」の2つだけにする。
+      title: widget.allowPhoto
+          ? Row(
+              children: [
+                const Expanded(child: title),
+                IconButton(
+                  icon: const Icon(Icons.close),
+                  tooltip: 'キャンセル',
+                  onPressed: () => Navigator.pop(context),
+                ),
+              ],
+            )
+          : title,
       content: SizedBox(
         width: 320,
         // 画面が低いときはダイアログ内容ごとスクロールさせる。
@@ -792,17 +921,37 @@ class _ConfirmDialogState extends State<_ConfirmDialog> {
           ),
         ),
       ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('キャンセル'),
-        ),
-        FilledButton(
-          onPressed: () =>
-              Navigator.pop(context, (activity: _selected)),
-          child: const Text('記録'),
-        ),
-      ],
+      actions: widget.allowPhoto
+          ? [
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                      ),
+                      onPressed: recordWithPhoto,
+                      icon: const Icon(Icons.photo_camera_outlined, size: 18),
+                      label: const Text('写真も追加'),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: FilledButton(
+                      onPressed: record,
+                      child: const Text('記録'),
+                    ),
+                  ),
+                ],
+              ),
+            ]
+          : [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('キャンセル'),
+              ),
+              FilledButton(onPressed: record, child: const Text('記録')),
+            ],
     );
   }
 }

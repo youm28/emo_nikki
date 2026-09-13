@@ -108,6 +108,56 @@ void main() {
     expect(find.byType(ActivityImage), findsNWidgets(kActivityList.length));
   });
 
+  group('確認画面の「写真も追加」', () {
+    // 開発用の鍵（64桁）がこの端末に保存されている状態を作る。
+    final devKey = 'a' * 64;
+
+    testWidgets('鍵のない端末には出ない（教授などが同じ名前で開いた場合）',
+        (WidgetTester tester) async {
+      SharedPreferences.setMockInitialValues({'username': 'taro'});
+      await tester.pumpWidget(const EmoNikkiApp());
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byType(EmojiTile).first);
+      await tester.pumpAndSettle();
+
+      expect(find.text('記録'), findsOneWidget);
+      expect(find.text('写真も追加'), findsNothing);
+    });
+
+    testWidgets('鍵のある端末では「記録」の横に出て、スマホ幅でもはみ出さない',
+        (WidgetTester tester) async {
+      tester.view.physicalSize = const Size(375, 667);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      SharedPreferences.setMockInitialValues(
+          {'username': 'taro', 'devDataKey': devKey});
+      await tester.pumpWidget(const EmoNikkiApp());
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byType(EmojiTile).first);
+      await tester.pumpAndSettle();
+
+      // オーバーフローがあればこの時点で例外になる。
+      expect(find.text('写真も追加'), findsOneWidget);
+      expect(find.text('記録'), findsOneWidget);
+
+      // 縦に積まれず、「記録」と同じ行に並ぶ（入りきらないとボタンが縦に並ぶ）。
+      final photoY = tester.getCenter(find.text('写真も追加')).dy;
+      final recordY = tester.getCenter(find.text('記録')).dy;
+      expect(photoY, closeTo(recordY, 1));
+      expect(tester.getCenter(find.text('写真も追加')).dx,
+          lessThan(tester.getCenter(find.text('記録')).dx));
+
+      // キャンセルはタイトル横の×。押すと閉じる（記録はされない）。
+      await tester.tap(find.byTooltip('キャンセル'));
+      await tester.pumpAndSettle();
+      expect(find.text('写真も追加'), findsNothing);
+    });
+  });
+
   testWidgets('チャートは行動が記録された分だけ行動レーンに並べる',
       (WidgetTester tester) async {
     final entries = [

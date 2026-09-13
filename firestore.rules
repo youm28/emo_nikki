@@ -20,5 +20,19 @@ service cloud.firestore {
     match /users/{userId}/tokens/{token} {
       allow read, create, update: if true;
     }
+
+    // 開発用（試作）の保存場所。写真と試作の日記。
+    //
+    // {key} は開発用パスワードから作る64桁の値で、アプリにも GitHub にも
+    // 書かれていない（lib/dev_crypto.dart）。これを知らないとパスを組み立て
+    // られないので、読み書きできない。
+    // /dev/{key} 自体には規則を置かない＝ dev の一覧を取ってキーを知ることはできない。
+    // 写真は自分で消せるよう delete も許可する。
+    match /dev/{key}/photos/{photoId} {
+      allow read, create, delete: if key.size() == 64;
+    }
+    match /dev/{key}/diaries/{docId} {
+      allow read, create, update: if key.size() == 64;
+    }
   }
 }

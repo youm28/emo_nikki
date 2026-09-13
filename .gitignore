@@ -56,3 +56,6 @@ app.*.map.json
 *-firebase-adminsdk-*.json
 serviceAccountKey.json
 service-account*.json
+
+# ビルド時に渡す秘密の値（Google マップの API キーなど）。GitHub に上げない。
+dart_defines.json
