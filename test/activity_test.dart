@@ -79,6 +79,11 @@ void main() {
     expect(find.byType(ActivityImage), findsNWidgets(kActivityList.length));
     expect(find.text('記録'), findsOneWidget);
 
+    // 行動はアイコンだけで示し、名前の文字は出さない。
+    for (final activity in kActivityList) {
+      expect(find.text(activity.labelJa), findsNothing, reason: activity.labelJa);
+    }
+
     // キャンセルで閉じられる（保存処理には進まない）。
     await tester.tap(find.text('キャンセル'));
     await tester.pumpAndSettle();

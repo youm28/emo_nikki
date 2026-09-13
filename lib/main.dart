@@ -744,7 +744,9 @@ class _ConfirmDialogState extends State<_ConfirmDialog> {
                   crossAxisCount: 4,
                   mainAxisSpacing: 6,
                   crossAxisSpacing: 6,
-                  mainAxisExtent: 64,
+                  // アイコン(30)＋余白(4×2)＋選択枠(2×2)。名前の文字を
+                  // 出さなくなったので、その分だけ行を低くしてある。
+                  mainAxisExtent: 42,
                 ),
                 itemCount: kActivityList.length,
                 itemBuilder: (context, i) {
@@ -765,11 +767,14 @@ class _ConfirmDialogState extends State<_ConfirmDialog> {
                         ),
                         borderRadius: BorderRadius.circular(8),
                       ),
-                      padding: const EdgeInsets.symmetric(vertical: 4),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          SizedBox(
+                      padding: const EdgeInsets.all(4),
+                      // 行動はアイコンだけで示す（名前の文字は出さない）。
+                      // 読み上げ機能向けに名前だけは残しておく。
+                      child: Semantics(
+                        label: activity.labelJa,
+                        selected: selected,
+                        child: Center(
+                          child: SizedBox(
                             width: 30,
                             height: 30,
                             child: ActivityImage(
@@ -777,18 +782,7 @@ class _ConfirmDialogState extends State<_ConfirmDialog> {
                               fallbackFontSize: 22,
                             ),
                           ),
-                          const SizedBox(height: 2),
-                          Text(
-                            activity.labelJa,
-                            style: TextStyle(
-                              fontSize: 10,
-                              fontWeight:
-                                  selected ? FontWeight.bold : FontWeight.normal,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ],
+                        ),
                       ),
                     ),
                   );
