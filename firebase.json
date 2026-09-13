@@ -65,6 +65,24 @@
         ]
       },
       {
+        "source": "/main.dart.js_*.part.js",
+        "headers": [
+          { "key": "Cache-Control", "value": "no-cache, max-age=0, must-revalidate" }
+        ]
+      },
+      {
+        "source": "/assets/fonts/**",
+        "headers": [
+          { "key": "Cache-Control", "value": "no-cache, max-age=0, must-revalidate" }
+        ]
+      },
+      {
+        "source": "/assets/*Manifest*",
+        "headers": [
+          { "key": "Cache-Control", "value": "no-cache, max-age=0, must-revalidate" }
+        ]
+      },
+      {
         "source": "/assets/assets/**",
         "headers": [
           { "key": "Cache-Control", "value": "public, max-age=604800" }
