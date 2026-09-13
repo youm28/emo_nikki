@@ -1,5 +1,6 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
@@ -11,8 +12,9 @@ import 'dashboard_page.dart';
 import 'emoji.dart';
 import 'layout.dart';
 import 'emotion_analysis.dart';
-import 'firebase_options.dart';
+import 'firebase_ready.dart';
 import 'push.dart';
+import 'splash.dart';
 import 'url_updater.dart';
 
 // 絵文字・行動データと共通ウィジェットは別ファイルに分離した。
@@ -20,12 +22,17 @@ import 'url_updater.dart';
 export 'activity.dart';
 export 'emoji.dart';
 
-Future<void> main() async {
-  // Firebaseの初期化はrunApp前に1回だけ行う。
+void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
+  // Firebase の準備は始めるだけで待たない。待つと、その間は画面が何も
+  // 出ないため。使う側（保存・読み込み）が ensureFirebase() で待つ。
+  unawaited(
+    ensureFirebase().catchError(
+      (Object e) => debugPrint('Firebase の準備に失敗（保存時に再試行はしない）: $e'),
+    ),
   );
+  // 最初の画面が描けたら、index.html の「読み込み中」を消す。
+  WidgetsBinding.instance.addPostFrameCallback((_) => removeSplash());
   runApp(const EmoNikkiApp());
 }
 
@@ -436,6 +443,7 @@ class _EmojiGridPageState extends State<EmojiGridPage> {
       debugPrint('--- 記録データ（保存先: users/${widget.username}/emotions） ---');
       debugPrint(record.toString());
 
+      await ensureFirebase(); // 起動直後に押された場合は、ここで準備を待つ
       final col = FirebaseFirestore.instance
           .collection('users')
           .doc(widget.username)

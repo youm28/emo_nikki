@@ -12,6 +12,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 
 import 'browser_push.dart';
+import 'firebase_ready.dart';
 
 /// 端末トークンの保存先（`users/{username}/tokens/{token}`）。
 ///
@@ -126,6 +127,7 @@ Future<void> saveToken({
   required String username,
   required String token,
 }) async {
+  await ensureFirebase();
   await FirebaseFirestore.instance
       .collection('users')
       .doc(username)

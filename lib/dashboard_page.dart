@@ -6,6 +6,7 @@ import 'activity.dart';
 import 'diary.dart';
 import 'emoji.dart';
 import 'emotion_analysis.dart';
+import 'firebase_ready.dart';
 import 'layout.dart';
 
 /// 折れ線の色（要件書 §F2: コーラル系）。
@@ -93,6 +94,7 @@ class _DashboardPageState extends State<DashboardPage> {
       _error = null;
     });
     try {
+      await ensureFirebase();
       final user =
           FirebaseFirestore.instance.collection('users').doc(widget.username);
 
@@ -167,6 +169,7 @@ class _DashboardPageState extends State<DashboardPage> {
 
     setState(() => _savingDiary = true);
     try {
+      await ensureFirebase();
       await FirebaseFirestore.instance
           .collection('users')
           .doc(widget.username)

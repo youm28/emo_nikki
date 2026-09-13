@@ -42,6 +42,14 @@
         "8081"
       ],
       "port": 8081
+    },
+    {
+      "//": "公開版と同じ release ビルド(build/web)をそのまま配信する。起動の速さを測るとき用。",
+      "//2": "先に flutter build web --release を実行しておく。",
+      "name": "emo_nikki-release",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["-m", "http.server", "8082", "--directory", "build/web"],
+      "port": 8082
     }
   ]
 }
