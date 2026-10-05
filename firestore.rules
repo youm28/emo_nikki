@@ -13,6 +13,12 @@ service cloud.firestore {
       allow read, create, update: if true;
     }
 
+    // 明日の予定（感情と行動の推移）。日記と同じく1日1件で、
+    // ドキュメントIDが日付(yyyy-MM-dd)。削除(delete)は許可しない。
+    match /users/{userId}/plans/{day} {
+      allow read, create, update: if true;
+    }
+
     // 通知用の端末トークン。ドキュメントIDがトークンそのものなので
     // 同じ端末から何度登録しても増えない。
     // 送信側(Admin SDK)はルールを介さず読むので、read は不要だが
