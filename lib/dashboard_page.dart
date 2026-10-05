@@ -951,19 +951,31 @@ class _HistoryTile extends StatelessWidget {
         ),
       ),
       title: Text(entry.time),
-      // 行動はアイコンだけで示す（名前の文字は出さない）。
-      subtitle: act == null
+      // 行動はアイコンだけで示し（名前の文字は出さない）、その右に一言メモを出す。
+      subtitle: (act == null && entry.memo == null)
           ? null
-          : Align(
-              alignment: Alignment.centerLeft,
-              child: Semantics(
-                label: act.labelJa,
-                child: SizedBox(
-                  width: 16,
-                  height: 16,
-                  child: ActivityImage(item: act, fallbackFontSize: 12),
-                ),
-              ),
+          : Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                if (act != null)
+                  Semantics(
+                    label: act.labelJa,
+                    child: SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: ActivityImage(item: act, fallbackFontSize: 12),
+                    ),
+                  ),
+                if (act != null && entry.memo != null) const SizedBox(width: 6),
+                if (entry.memo != null)
+                  Expanded(
+                    child: Text(
+                      entry.memo!,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+              ],
             ),
       trailing: Text('valence ${entry.valence}'),
     );
