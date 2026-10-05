@@ -168,6 +168,27 @@ void main() {
     });
   });
 
+  testWidgets('10〜20時の外の記録があっても、枠からはみ出さずに描ける',
+      (WidgetTester tester) async {
+    // 早朝や夜中の記録は、そのままだとカードの外まで線が伸びてしまう。
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: SizedBox(
+          width: 340,
+          child: PlanChart(
+            points: const [PlanPoint(hour: 12, valence: 6)],
+            actual: [entry('07:30', 3), entry('12:00', 5.18), entry('23:00', 7)],
+          ),
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    // 描画中に例外が出ないこと、予定の点は1つのままであること。
+    expect(tester.takeException(), isNull);
+    expect(find.byType(EmojiImage), findsOneWidget);
+  });
+
   group('指でなぞって描く', () {
     testWidgets('なぞった場所に点ができる', (WidgetTester tester) async {
       var points = <PlanPoint>[];

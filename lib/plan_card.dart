@@ -153,6 +153,11 @@ class _PlanPainter extends CustomPainter {
       _label(canvas, '$hour', Offset(x - 7, plotHeight + 2));
     }
 
+    // ここから先の線は、枠の外にはみ出さないよう切り取る。
+    // 10時より前・20時より後の記録は、そのままだとカードの外まで線が伸びる。
+    canvas.save();
+    canvas.clipRect(Rect.fromLTWH(leftPad, 0, width, plotHeight));
+
     // 実際の記録（重ねて見せるとき）。先に描いて予定を手前にする。
     if (actual.isNotEmpty) {
       final line = Paint()
@@ -192,6 +197,7 @@ class _PlanPainter extends CustomPainter {
           ..style = PaintingStyle.stroke,
       );
     }
+    canvas.restore();
   }
 
   void _label(Canvas canvas, String text, Offset at) {
