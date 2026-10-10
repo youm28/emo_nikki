@@ -3,13 +3,16 @@
     .venv/bin/python -m unittest tools/test_send_reminders.py
 """
 
+import os
 import sys
 import unittest
+from unittest import mock
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 sys.path.insert(0, str(Path(__file__).parent))
 
+import send_reminders  # noqa: E402
 from send_reminders import (  # noqa: E402
     DIARY,
     RECORD,
@@ -51,6 +54,29 @@ class BuildLinkTest(unittest.TestCase):
             self.query(build_link("山田&太=郎", DIARY)),
             {"u": ["山田&太=郎"], "open": ["diary"]},
         )
+
+
+class PingHealthcheckTest(unittest.TestCase):
+    def test_URLが無ければ何もしない(self):
+        with mock.patch.dict(os.environ, {}, clear=True):
+            with mock.patch("send_reminders.urllib.request.urlopen") as opened:
+                send_reminders.ping_healthcheck()
+                opened.assert_not_called()
+
+    def test_URLがあれば叩く(self):
+        with mock.patch.dict(os.environ, {"HEALTHCHECK_URL": "https://example/ping"}):
+            with mock.patch("send_reminders.urllib.request.urlopen") as opened:
+                send_reminders.ping_healthcheck()
+                opened.assert_called_once()
+                self.assertEqual(opened.call_args.args[0], "https://example/ping")
+
+    def test_連絡に失敗しても例外にしない(self):
+        # 見張りのための連絡なので、失敗しても通知の送信は続ける。
+        with mock.patch.dict(os.environ, {"HEALTHCHECK_URL": "https://example/ping"}):
+            with mock.patch(
+                "send_reminders.urllib.request.urlopen", side_effect=OSError("切断")
+            ):
+                send_reminders.ping_healthcheck()  # 例外が出なければ合格
 
 
 class BuildMessageTest(unittest.TestCase):

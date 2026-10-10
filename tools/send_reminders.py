@@ -41,6 +41,7 @@ import json
 import os
 import socket
 import sys
+import urllib.request
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlencode
@@ -164,6 +165,28 @@ def build_message(
     )
 
 
+def ping_healthcheck() -> None:
+    """healthchecks.io に「この時間帯の通知は出た」と知らせる。
+
+    環境変数 HEALTHCHECK_URL があるときだけ動く。URLは秘密（知っていれば誰でも
+    叩ける）なので、コードにもGitHubにも書かない。ミニPCは
+    ~/.config/emo_nikki/env に、GitHub Actions は Secret に入れる。
+
+    送信スクリプト自身が知らせることで、ミニPCでも GitHub Actions でも、
+    「どちらが送ったか」に関係なく1つのチェックで見張れる。
+    ここで失敗しても通知の送信には影響させない（見張りのための連絡なので）。
+    """
+    url = os.environ.get("HEALTHCHECK_URL")
+    if not url:
+        return
+    try:
+        with urllib.request.urlopen(url, timeout=10) as res:
+            res.read()
+        print("[INFO] healthchecks に連絡しました")
+    except Exception as e:  # noqa: BLE001 - 見張りの失敗で送信を止めない
+        print(f"[WARN] healthchecks への連絡に失敗: {e}")
+
+
 def slot_id(now: datetime) -> str:
     """その時間帯を表すID（例 "2026-08-11-14"）。1時間に1個しかない。"""
     return f"{now:%Y-%m-%d-%H}"
@@ -265,6 +288,9 @@ def main() -> int:
     # このあと落ちたときにその時間帯が「送信済み」のまま残ってしまう。
     if not args.force and not claim_slot(db, now, reminder):
         print(f"[INFO] {now.hour}時台はすでに送信済みなので送りません")
+        # すでに誰かが送っている＝この時間帯の通知は出ている。
+        # 見張り側から見れば正常なので、ここでも連絡しておく。
+        ping_healthcheck()
         return 0
 
     sent = 0
@@ -282,6 +308,8 @@ def main() -> int:
             print(f"[WARN] 送信に失敗 ({username}): {e}")
 
     print(f"[OK] 送信 {sent} 件 / 無効削除 {stale} 件")
+    if sent:
+        ping_healthcheck()
     return 0
 
 
