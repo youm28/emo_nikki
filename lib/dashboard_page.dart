@@ -3,14 +3,14 @@ import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/material.dart';
 
 import 'activity.dart';
+import 'chart_colors.dart';
 import 'diary.dart';
 import 'emoji.dart';
 import 'emotion_analysis.dart';
 import 'firebase_ready.dart';
 import 'layout.dart';
-
-/// 折れ線の色（要件書 §F2: コーラル系）。
-const Color kLineColor = Color(0xFFF0997B);
+import 'plan.dart';
+import 'plan_card.dart';
 
 /// チャート上の絵文字マーカーの大きさ（px）。小さいほど時間の分解能が上がる。
 /// 縮尺(kPxPerMinute)と合わせて「何分あければずれないか」が決まる。
@@ -67,6 +67,13 @@ class _DashboardPageState extends State<DashboardPage> {
   bool _diaryLoadError = false; // 日記だけ読めなかった（上書き事故を避けて保存を止める）
   bool _savingDiary = false;
 
+  // 明日の予定（今日を見ているときだけ描ける）と、表示中の日に立てられていた予定。
+  List<PlanPoint> _tomorrowPlan = const [];
+  List<PlanPoint> _savedTomorrowPlan = const [];
+  bool _savingPlan = false;
+  bool _planLoadError = false; // 予定だけ読めなかった（保存を止める）
+  DayPlan? _planOfDay;
+
   @override
   void initState() {
     super.initState();
@@ -80,6 +87,23 @@ class _DashboardPageState extends State<DashboardPage> {
   }
 
   bool get _isToday => formatDay(_date) == formatDay(DateTime.now());
+
+  DateTime get _tomorrow => DateTime(_date.year, _date.month, _date.day + 1);
+
+  /// 明日の予定に未保存の変更があるか。
+  bool get _planDirty => !_samePlan(_tomorrowPlan, _savedTomorrowPlan);
+
+  static bool _samePlan(List<PlanPoint> a, List<PlanPoint> b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i].hour != b[i].hour ||
+          a[i].valence != b[i].valence ||
+          a[i].activity != b[i].activity) {
+        return false;
+      }
+    }
+    return true;
+  }
 
   /// 未保存の変更があるか（離脱ガードに使う）。
   ///
@@ -105,6 +129,7 @@ class _DashboardPageState extends State<DashboardPage> {
           .where('day', isEqualTo: formatDay(_date))
           .get();
       final diaryFuture = _fetchDiary(user);
+      final plansFuture = _fetchPlans(user);
 
       final emotionSnap = await emotionsFuture;
       final entries = emotionSnap.docs
@@ -115,6 +140,7 @@ class _DashboardPageState extends State<DashboardPage> {
         ..sort((a, b) => a.time.compareTo(b.time));
 
       final diary = await diaryFuture;
+      final plans = await plansFuture;
 
       if (!mounted) return;
       setState(() {
@@ -123,6 +149,9 @@ class _DashboardPageState extends State<DashboardPage> {
         _savedDiaryText = diary?.text ?? '';
         _diaryController.text = _savedDiaryText;
         _diaryUpdatedAt = diary?.updatedAt;
+        _planOfDay = plans.ofDay;
+        _tomorrowPlan = plans.tomorrow;
+        _savedTomorrowPlan = plans.tomorrow;
         _loading = false;
       });
     } catch (e) {
@@ -157,6 +186,32 @@ class _DashboardPageState extends State<DashboardPage> {
       debugPrint('日記の取得に失敗（記録の表示は続行）: $e');
       _diaryLoadError = true;
       return null;
+    }
+  }
+
+  /// 予定を読む。表示中の日の予定（見比べ用）と、明日の予定（描きかけの続き）。
+  ///
+  /// ここで失敗しても例外を投げない。予定が読めないだけで、チャートや日記まで
+  /// 見られなくなるのを避けるため（日記と同じ考え方）。
+  /// 読めなかったときは [_planLoadError] を立て、上書き事故を避けて保存も止める。
+  Future<({DayPlan? ofDay, List<PlanPoint> tomorrow})> _fetchPlans(
+    DocumentReference<Map<String, dynamic>> user,
+  ) async {
+    try {
+      final plans = user.collection('plans');
+      final ofDaySnap = await plans.doc(planDocId(_date)).get();
+      final ofDay = DayPlan.fromMap(ofDaySnap.data() ?? {});
+      var tomorrow = const <PlanPoint>[];
+      if (_isToday) {
+        final snap = await plans.doc(planDocId(_tomorrow)).get();
+        tomorrow = DayPlan.fromMap(snap.data() ?? {}).points;
+      }
+      _planLoadError = false;
+      return (ofDay: ofDay.isEmpty ? null : ofDay, tomorrow: tomorrow);
+    } catch (e) {
+      debugPrint('予定の取得に失敗（記録の表示は続行）: $e');
+      _planLoadError = true;
+      return (ofDay: null, tomorrow: const <PlanPoint>[]);
     }
   }
 
@@ -201,6 +256,37 @@ class _DashboardPageState extends State<DashboardPage> {
           backgroundColor: errorColor,
         ),
       );
+    }
+  }
+
+  /// 明日の予定を保存する（1日1件・同じ日は上書き）。
+  Future<void> _savePlan() async {
+    if (_savingPlan) return;
+    final messenger = ScaffoldMessenger.of(context);
+    final points = _tomorrowPlan;
+    setState(() => _savingPlan = true);
+    try {
+      await ensureFirebase();
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(widget.username)
+          .collection('plans')
+          .doc(planDocId(_tomorrow))
+          .set({
+        ...DayPlan(day: formatDay(_tomorrow), points: points).toMap(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      if (!mounted) return;
+      setState(() {
+        _savedTomorrowPlan = points;
+        _savingPlan = false;
+      });
+      messenger.showSnackBar(const SnackBar(content: Text('明日の予定を保存しました')));
+    } catch (e) {
+      debugPrint('予定の保存に失敗: $e');
+      if (!mounted) return;
+      setState(() => _savingPlan = false);
+      messenger.showSnackBar(const SnackBar(content: Text('予定の保存に失敗しました')));
     }
   }
 
@@ -319,6 +405,25 @@ class _DashboardPageState extends State<DashboardPage> {
             updatedAt: _diaryUpdatedAt,
             onSave: _saveDiary,
           ),
+          // 立てた予定があれば、その日の実際の記録と見比べる。
+          if (_planOfDay case final plan?) ...[
+            const SizedBox(height: 16),
+            PlanReviewCard(plan: plan, entries: _entries),
+          ],
+          // 明日の予定は、日記を書いたあとの流れで描けるよう日記の下に置く。
+          if (_isToday) ...[
+            const SizedBox(height: 16),
+            PlanCard(
+              planDate: _tomorrow,
+              loadError: _planLoadError,
+              points: _tomorrowPlan,
+              onChanged: (points) => setState(() => _tomorrowPlan = points),
+              onClear: () => setState(() => _tomorrowPlan = const []),
+              onSave: _savePlan,
+              saving: _savingPlan,
+              dirty: _planDirty,
+            ),
+          ],
           const SizedBox(height: 16),
           if (_entries.isNotEmpty) _HistoryList(entries: _entries),
         ],
@@ -951,19 +1056,31 @@ class _HistoryTile extends StatelessWidget {
         ),
       ),
       title: Text(entry.time),
-      // 行動はアイコンだけで示す（名前の文字は出さない）。
-      subtitle: act == null
+      // 行動はアイコンだけで示し（名前の文字は出さない）、その右に一言メモを出す。
+      subtitle: (act == null && entry.memo == null)
           ? null
-          : Align(
-              alignment: Alignment.centerLeft,
-              child: Semantics(
-                label: act.labelJa,
-                child: SizedBox(
-                  width: 16,
-                  height: 16,
-                  child: ActivityImage(item: act, fallbackFontSize: 12),
-                ),
-              ),
+          : Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                if (act != null)
+                  Semantics(
+                    label: act.labelJa,
+                    child: SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: ActivityImage(item: act, fallbackFontSize: 12),
+                    ),
+                  ),
+                if (act != null && entry.memo != null) const SizedBox(width: 6),
+                if (entry.memo != null)
+                  Expanded(
+                    child: Text(
+                      entry.memo!,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+              ],
             ),
       trailing: Text('valence ${entry.valence}'),
     );

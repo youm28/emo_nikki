@@ -507,7 +507,8 @@ class _EmojiGridPageState extends State<EmojiGridPage> {
       final loc = await tryGetLatLng();
 
       // 記録データを組み立てて lat/lng を上書きする。
-      final record = buildEmotionRecord(item, now: now, activity: activity)
+      final record =
+          buildEmotionRecord(item, now: now, activity: activity, memo: result.memo)
         ..['lat'] = loc.lat
         ..['lng'] = loc.lng;
       debugPrint('--- 記録データ（保存先: users/${widget.username}/emotions） ---');
@@ -669,6 +670,7 @@ Map<String, dynamic> buildEmotionRecord(
   EmojiItem item, {
   DateTime? now,
   ActivityItem? activity,
+  String memo = '',
 }) {
   final t = now ?? DateTime.now();
   return {
@@ -679,6 +681,8 @@ Map<String, dynamic> buildEmotionRecord(
     'valence': item.valence,
     'arousal': item.arousal,
     'activity': activity?.name,
+    // 未入力のときは null（空文字を入れると「メモあり」と区別できなくなる）。
+    'memo': memo.isEmpty ? null : memo,
     'lat': null,
     'lng': null,
   };
@@ -785,7 +789,12 @@ class _AccountDialog extends StatelessWidget {
 }
 
 /// 確認画面の結果。[photo] は「写真も追加」を押したときだけ入る。
-typedef ConfirmResult = ({ActivityItem? activity, Future<XFile?>? photo});
+/// [memo] は一言メモ（未入力なら空文字）。
+typedef ConfirmResult = ({
+  ActivityItem? activity,
+  Future<XFile?>? photo,
+  String memo,
+});
 
 /// 絵文字タップ後の確認ダイアログ。選んだ気分の確認と、行動の選択を1画面で行う。
 ///
@@ -808,19 +817,31 @@ class _ConfirmDialog extends StatefulWidget {
 class _ConfirmDialogState extends State<_ConfirmDialog> {
   ActivityItem? _selected;
 
+  // 一言メモ。日記と同じく、変換前の文字に下線を出さないコントローラを使う。
+  final TextEditingController _memo = NoComposingUnderlineController();
+
+  @override
+  void dispose() {
+    _memo.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
 
     void record() => Navigator.pop<ConfirmResult>(
           context,
-          (activity: _selected, photo: null),
+          (activity: _selected, photo: null, memo: _memo.text.trim()),
         );
     void recordWithPhoto() {
       // iPhone はタップの直後でないとカメラを開かせないので、
       // 閉じるより先にカメラを開く。撮影の結果は記録の保存後に受け取る。
       final photo = startPhotoCapture();
-      Navigator.pop<ConfirmResult>(context, (activity: _selected, photo: photo));
+      Navigator.pop<ConfirmResult>(
+        context,
+        (activity: _selected, photo: photo, memo: _memo.text.trim()),
+      );
     }
 
     const title = Text('この気分で記録しますか？');
@@ -916,6 +937,24 @@ class _ConfirmDialogState extends State<_ConfirmDialog> {
                     ),
                   );
                 },
+              ),
+              const SizedBox(height: 12),
+              // 一言メモ（任意）。あとで日記を書くときの手がかりにする。
+              //
+              // autofocus はしない。記録は「絵文字→記録」の2タップで終えられる
+              // 速さが大事で、毎回キーボードが出るとその流れを止めてしまうため。
+              TextField(
+                controller: _memo,
+                maxLines: 1,
+                maxLength: 60,
+                textInputAction: TextInputAction.done,
+                onSubmitted: (_) => record(), // 改行では確定させず、そのまま記録
+                decoration: const InputDecoration(
+                  hintText: '一言メモ（任意）',
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                  counterText: '', // 文字数は出さない（入力欄を小さく保つ）
+                ),
               ),
             ],
           ),
